@@ -28,7 +28,8 @@ export function startScheduler(deps: SchedulerDeps): { stop(): void; tick(): Pro
       } catch (e) {
         console.error('Safe Bin purge failed', e)
       }
-      if (s.sweepWindowsRecycleBin) {
+      // the purge can take a while; respect dry run if it was switched on meanwhile
+      if (s.sweepWindowsRecycleBin && !(await deps.settings.get()).dryRun) {
         try {
           const r = await deps.sweep(s.holdHours)
           if (r.count > 0) {

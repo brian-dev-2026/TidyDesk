@@ -226,7 +226,7 @@ export function DashboardPage({ onNavigate }: { onNavigate: (p: Page) => void })
         onConfirm={async () => {
           const o = orphanToDelete!
           setOrphanToDelete(null)
-          if ((await call(tidy.deleteOrphan(o.binDir))) !== undefined) toast.success('Orphaned folder deleted')
+          if ((await call(tidy.deleteOrphan(o.binDir))) === true) toast.success('Orphaned folder deleted')
           void refresh()
         }}
       />

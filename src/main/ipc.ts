@@ -89,7 +89,12 @@ export function registerIpc(deps: IpcDeps): { notifyHistoryChanged: () => void }
     const { dryRun } = await settings.get()
     const report = progress('junk')
     const entry = await withChange(
-      safeBin.quarantine(files, { type: 'junk', title: 'Junk clean', dryRun }, (d, t) => report('Cleaning', d, t))
+      safeBin.quarantine(
+        files,
+        // re-apply the 1-hour rule at clean time: a file may have become active since the scan
+        { type: 'junk', title: 'Junk clean', dryRun, skipNewerThan: Date.now() - 3600000 },
+        (d, t) => report('Cleaning', d, t)
+      )
     )
     junkFiles = {}
     return strip(entry)
@@ -190,9 +195,10 @@ export function registerIpc(deps: IpcDeps): { notifyHistoryChanged: () => void }
 
   handle('orphans', async () => safeBin.orphans((await listDrives()).map((d) => d.root)))
 
-  handle('deleteOrphan', async (binDir: string) => {
+  handle('deleteOrphan', async (binDir: string): Promise<true> => {
     await safeBin.deleteOrphan(binDir)
     notifyHistoryChanged()
+    return true
   })
 
   handle('openOrphan', async (binDir: string) => {

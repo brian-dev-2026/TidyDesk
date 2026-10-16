@@ -114,8 +114,11 @@ export class HistoryStore {
       const entries = await this.load()
       entries.push(await this.externalise(e))
       entries.sort((a, b) => a.createdAt - b.createdAt)
+      // drop the oldest finished entries; a batch still in the Safe Bin is never dropped
       while (entries.length > MAX_ENTRIES) {
-        const old = entries.shift()!
+        const i = entries.findIndex((x) => x.status !== 'held' && x.status !== 'partial')
+        if (i < 0) break
+        const [old] = entries.splice(i, 1)
         if (old.itemsFile) await fs.rm(this.sidecar(old.id), { force: true })
       }
       await this.save()

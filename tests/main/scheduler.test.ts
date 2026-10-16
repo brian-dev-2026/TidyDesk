@@ -79,4 +79,31 @@ describe('scheduler', () => {
     await sched.tick()
     expect(calls).toEqual([])
   })
+
+  it('gap 9: dry run switched on during a tick stops the sweep', async () => {
+    const calls: string[] = []
+    let dry = false
+    const history = new HistoryStore(path.join(await tmpDir(), 'data'))
+    const sched = startScheduler({
+      safeBin: {
+        purgeExpired: async () => {
+          calls.push('purge')
+          dry = true // user flips dry run on while the purge is running
+          return 0
+        }
+      },
+      settings: { get: async () => ({ ...DEFAULT_SETTINGS, firstRunNoticeSeen: true, dryRun: dry }) },
+      sweep: async () => {
+        calls.push('sweep')
+        return { count: 0, bytes: 0 }
+      },
+      history,
+      onChange: () => {},
+      intervalMs: 10_000_000,
+      runImmediately: false
+    })
+    sched.stop()
+    await sched.tick()
+    expect(calls).toEqual(['purge'])
+  })
 })

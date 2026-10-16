@@ -27,7 +27,7 @@ describe('HistoryStore', () => {
 
   it('caps at 500', async () => {
     const h = new HistoryStore(await tmpDir())
-    for (let i = 0; i < 505; i++) await h.add(entry('e' + i, i))
+    for (let i = 0; i < 505; i++) await h.add(entry('e' + i, i, { status: 'purged' }))
     const list = await h.list()
     expect(list).toHaveLength(500)
     expect(list.find((e) => e.id === 'e4')).toBeUndefined()
@@ -100,5 +100,16 @@ describe('HistoryStore', () => {
     const h = new HistoryStore('x')
     const ids = new Set(Array.from({ length: 100 }, () => h.newId()))
     expect(ids.size).toBe(100)
+  })
+
+  it('gap 8: the 500-entry cap never drops a batch that is still held', async () => {
+    const h = new HistoryStore(await tmpDir())
+    await h.add(entry('held-old', 0, { status: 'held' }))
+    await h.add(entry('partial-old', 1, { status: 'partial' }))
+    for (let i = 0; i < 505; i++) await h.add(entry('d' + i, 10 + i, { status: 'purged' }))
+    const list = await h.list()
+    expect(list).toHaveLength(500)
+    expect(list.find((e) => e.id === 'held-old')).toBeDefined()
+    expect(list.find((e) => e.id === 'partial-old')).toBeDefined()
   })
 })

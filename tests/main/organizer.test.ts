@@ -143,4 +143,16 @@ describe('organizer', () => {
     await expect(undoOrganize(e.id, history, { dryRun: true })).rejects.toThrow('Dry run is on')
     expect(await exists(path.join(dir, 'Images', 'a.jpg'))).toBe(true)
   })
+
+  it.runIf(process.platform === 'win32')('gap 6: files with the Windows hidden or system attribute are left alone', async () => {
+    const { dir } = await setup()
+    const hidden = await write(path.join(dir, '~$report.docx'))
+    const system = await write(path.join(dir, 'boot.log'))
+    await write(path.join(dir, 'visible.pdf'))
+    const { execFileSync } = await import('child_process')
+    execFileSync('attrib', ['+h', hidden])
+    execFileSync('attrib', ['+s', system])
+    const plan = await planOrganize(dir)
+    expect(plan.map((m) => path.basename(m.from))).toEqual(['visible.pdf'])
+  })
 })

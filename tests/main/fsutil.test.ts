@@ -85,4 +85,32 @@ describe('fsutil', () => {
     const d = await tmpDir()
     expect(await collect(path.join(d, 'nope'))).toEqual([])
   })
+
+  it('gap 10: two moves racing to the same target never overwrite each other', async () => {
+    const d = await tmpDir()
+    for (let round = 0; round < 10; round++) {
+      const a = await write(path.join(d, `a${round}.txt`), 'from-a')
+      const b = await write(path.join(d, `b${round}.txt`), 'from-b')
+      const to = path.join(d, `target${round}.txt`)
+      const results = await Promise.allSettled([moveFile(a, to), moveFile(b, to)])
+      const won = results.filter((r) => r.status === 'fulfilled').length
+      expect(won).toBe(1)
+      const loser = results[0].status === 'fulfilled' ? b : a
+      expect(await exists(loser)).toBe(true) // the losing file was not destroyed
+      const winnerContent = results[0].status === 'fulfilled' ? 'from-a' : 'from-b'
+      expect(await fs.readFile(to, 'utf8')).toBe(winnerContent)
+    }
+  })
+
+  it('moveFile moves a read-only file and keeps it read-only', async () => {
+    const d = await tmpDir()
+    const a = await write(path.join(d, 'ro.txt'), 'locked')
+    await fs.chmod(a, 0o444)
+    const to = path.join(d, 'moved', 'ro.txt')
+    await moveFile(a, to)
+    expect(await exists(a)).toBe(false)
+    expect(await fs.readFile(to, 'utf8')).toBe('locked')
+    expect((await fs.stat(to)).mode & 0o200).toBe(0)
+    await fs.chmod(to, 0o666)
+  })
 })

@@ -19,21 +19,29 @@ export async function pathExists(p: string): Promise<boolean> {
   }
 }
 
-/** Moves a file, creating the destination's parent. Never overwrites; falls back to copy+unlink across drives. */
+/**
+ * Moves a file, creating the destination's parent. Never overwrites, even when another move targets
+ * the same name at the same moment: on one drive it hard-links then unlinks (linking fails if the
+ * target exists); elsewhere it copies with COPYFILE_EXCL and then deletes the source.
+ */
 export async function moveFile(from: string, to: string): Promise<void> {
   await fs.mkdir(path.dirname(to), { recursive: true })
-  if (await pathExists(to)) throw eexist(to)
   try {
-    await fs.rename(from, to)
+    await fs.link(from, to)
   } catch (e) {
-    if ((e as NodeJS.ErrnoException).code !== 'EXDEV') throw e
-    await fs.copyFile(from, to, constants.COPYFILE_EXCL)
-    try {
-      await fs.unlink(from)
-    } catch (unlinkErr) {
-      await fs.unlink(to).catch(() => {})
-      throw unlinkErr
-    }
+    const code = (e as NodeJS.ErrnoException).code
+    if (code === 'EEXIST') throw eexist(to)
+    if (code === 'ENOENT' || code === 'EACCES' || code === 'EBUSY') throw e
+    // other drive, a folder, or a file system without hard links: copy exclusively instead
+    await fs.copyFile(from, to, constants.COPYFILE_EXCL).catch((err: NodeJS.ErrnoException) => {
+      throw err.code === 'EEXIST' ? eexist(to) : err
+    })
+  }
+  try {
+    await fs.unlink(from)
+  } catch (unlinkErr) {
+    await fs.unlink(to).catch(() => {}) // source is locked: undo, leave the original in place
+    throw unlinkErr
   }
 }
 

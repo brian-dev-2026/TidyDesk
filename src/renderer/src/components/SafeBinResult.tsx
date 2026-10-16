@@ -2,8 +2,9 @@ import { useState } from 'react'
 import { CheckCircle2, FlaskConical, RotateCcw, Trash2 } from 'lucide-react'
 import type { HistoryEntry } from '@shared/types'
 import { formatBytes } from '@shared/format'
-import { call, tidy, toast, useSettings } from '../api'
+import { call, tidy, useSettings } from '../api'
 import { ConfirmDialog } from './ConfirmDialog'
+import { announcePurge, announceRestore } from '../messages'
 import { Button, Card, Countdown } from './ui'
 
 /** Result card shown after a junk clean or duplicate removal. */
@@ -42,13 +43,26 @@ export function SafeBinResult({
     )
   }
 
+  if (entry.status === 'skipped') {
+    return (
+      <Card className="border-amber-500/30 bg-amber-500/5">
+        <div className="font-semibold">Nothing was moved</div>
+        <p className="mt-1 text-sm text-muted">
+          All {entry.skipped.toLocaleString()} files were skipped — they are in use, changed in the last hour, or no
+          longer exist. Open the entry on the Dashboard to see why for each file.
+        </p>
+      </Card>
+    )
+  }
+
   const run = async (kind: 'restore' | 'purge'): Promise<void> => {
     setBusy(kind)
     const r = await call(kind === 'restore' ? tidy.restore(entry.id) : tidy.purgeNow(entry.id))
     setBusy(null)
     if (r) {
       onChange(r)
-      toast.success(kind === 'restore' ? 'Files restored to their original folders' : 'Space freed permanently')
+      if (kind === 'restore') announceRestore(r)
+      else announcePurge(r)
     }
   }
 
@@ -68,7 +82,7 @@ export function SafeBinResult({
               <p className="text-sm text-muted">
                 Freed automatically in {entry.expiresAt ? <Countdown until={entry.expiresAt} /> : '—'} · restore any
                 time before then
-                {entry.skipped > 0 && ` · ${entry.skipped.toLocaleString()} files in use were skipped`}
+                {entry.skipped > 0 && ` · ${entry.skipped.toLocaleString()} files skipped (in use or changed recently)`}
               </p>
             </>
           ) : (
@@ -98,7 +112,7 @@ export function SafeBinResult({
         open={confirmPurge}
         danger
         title="Free space now?"
-        body={`${formatBytes(entry.bytes - (entry.restoredBytes ?? 0))} will be permanently deleted. This cannot be undone.`}
+        body={`${formatBytes(entry.bytes - (entry.restoredBytes ?? 0) - (entry.freedBytes ?? 0))} will be permanently deleted. This cannot be undone.`}
         confirmLabel="Delete permanently"
         onCancel={() => setConfirmPurge(false)}
         onConfirm={() => {

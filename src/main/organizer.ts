@@ -3,6 +3,7 @@ import path from 'path'
 import type { HistoryEntry, Move } from '@shared/types'
 import type { HistoryStore } from './history'
 import { isProtectedPath } from './guards'
+import { execFile } from 'child_process'
 import { moveFile, pathExists, uniquePath } from './fsutil'
 
 export const CATEGORIES: Record<string, string[]> = {
@@ -40,17 +41,39 @@ async function categoryFolder(dir: string, category: string): Promise<string> {
   }
 }
 
+/** Lowercase names of files in dir that Windows marks Hidden or System (e.g. Office "~$" lock files). */
+function hiddenOrSystemNames(dir: string): Promise<Set<string>> {
+  if (process.platform !== 'win32') return Promise.resolve(new Set())
+  const script =
+    '[Console]::OutputEncoding = [Text.Encoding]::UTF8; ' +
+    'Get-ChildItem -LiteralPath $env:TIDY_DIR -Force -File | ' +
+    'Where-Object { $_.Attributes -band ([IO.FileAttributes]::Hidden -bor [IO.FileAttributes]::System) } | ' +
+    'ForEach-Object { $_.Name }'
+  return new Promise((resolve, reject) => {
+    execFile(
+      'powershell.exe',
+      ['-NoProfile', '-NonInteractive', '-Command', script],
+      { env: { ...process.env, TIDY_DIR: dir }, windowsHide: true, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 },
+      (err, out) => {
+        // without the attribute list we cannot tell which files are hidden, so refuse rather than guess
+        if (err) return reject(new Error('Could not read file attributes in this folder'))
+        resolve(new Set(out.split(/\r?\n/).map((n) => n.trim().toLowerCase()).filter(Boolean)))
+      }
+    )
+  })
+}
+
 /** Plans moving every top-level, non-hidden file of dir into category subfolders. Touches nothing on disk. */
 export async function planOrganize(dir: string): Promise<Move[]> {
   if (isProtectedPath(dir)) throw new Error('Protected folder')
-  const entries = await fs.readdir(dir, { withFileTypes: true })
+  const [entries, hidden] = await Promise.all([fs.readdir(dir, { withFileTypes: true }), hiddenOrSystemNames(dir)])
   const folders = new Map<string, string>()
   const taken = new Set<string>()
   const moves: Move[] = []
   for (const e of entries.sort((a, b) => a.name.localeCompare(b.name))) {
     if (!e.isFile()) continue
     const lower = e.name.toLowerCase()
-    if (e.name.startsWith('.') || HIDDEN_NAMES.has(lower) || FOLDER_NAMES.has(lower)) continue
+    if (e.name.startsWith('.') || HIDDEN_NAMES.has(lower) || FOLDER_NAMES.has(lower) || hidden.has(lower)) continue
     const category = categoryOf(e.name)
     if (!folders.has(category)) folders.set(category, await categoryFolder(dir, category))
     const to = await uniquePath(path.join(folders.get(category)!, e.name), undefined, taken)

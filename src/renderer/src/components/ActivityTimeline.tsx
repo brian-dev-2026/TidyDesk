@@ -14,6 +14,7 @@ import type { BinItem, HistoryEntry, Move } from '@shared/types'
 import { formatBytes } from '@shared/format'
 import { call, tidy, toast, useSettings } from '../api'
 import { ConfirmDialog } from './ConfirmDialog'
+import { announcePurge, announceRestore, reasonText } from '../messages'
 import { Badge, Button, Countdown, cx, Empty, type Tone } from './ui'
 
 const ICONS = { junk: Trash2, duplicates: Copy, organize: FolderTree, 'recycle-sweep': Recycle }
@@ -45,6 +46,8 @@ function statusBadge(e: HistoryEntry): { tone: Tone; label: string } {
       return { tone: 'success', label: 'Organized' }
     case 'undone':
       return { tone: 'neutral', label: 'Undone' }
+    case 'skipped':
+      return { tone: 'warning', label: 'Nothing moved' }
     default:
       return { tone: 'neutral', label: 'Done' }
   }
@@ -91,7 +94,10 @@ function TimelineRow({ entry: e }: { entry: HistoryEntry }): JSX.Element {
       kind === 'restore' ? tidy.restore(e.id) : kind === 'purge' ? tidy.purgeNow(e.id) : tidy.organizeUndo(e.id)
     )
     setBusy(null)
-    if (r) toast.success(kind === 'purge' ? 'Permanently deleted' : kind === 'undo' ? 'Organize undone' : 'Restored')
+    if (!r) return
+    if (kind === 'restore') announceRestore(r)
+    else if (kind === 'purge') announcePurge(r)
+    else toast.success('Organize undone — every file is back where it was')
   }
 
   const summary =
@@ -166,7 +172,7 @@ function TimelineRow({ entry: e }: { entry: HistoryEntry }): JSX.Element {
         open={confirm}
         danger
         title="Delete permanently?"
-        body={`${formatBytes(e.bytes - (e.restoredBytes ?? 0))} in this batch will be deleted for good. This cannot be undone.`}
+        body={`${formatBytes(e.bytes - (e.restoredBytes ?? 0) - (e.freedBytes ?? 0))} in this batch will be deleted for good. This cannot be undone.`}
         confirmLabel="Delete permanently"
         onCancel={() => setConfirm(false)}
         onConfirm={() => {
@@ -194,7 +200,7 @@ function EntryDetails({ id, version }: { id: string; version: string }): JSX.Ele
     const r = await call(tidy.restore(id, [p]))
     setBusyPath(null)
     if (r) {
-      toast.success('File restored')
+      announceRestore(r)
       const again = await call(tidy.historyEntry(id))
       if (again) setFull(again)
     }
@@ -219,7 +225,7 @@ function EntryDetails({ id, version }: { id: string; version: string }): JSX.Ele
                 </div>
               )}
               {it.restoredTo && <div className="truncate text-muted">restored as {it.restoredTo}</div>}
-              {it.reason && <div className="text-rose-500">{it.reason}</div>}
+              {it.reason && <div className="text-rose-500">{reasonText(it.reason)}</div>}
             </div>
             <span className="shrink-0 tabular-nums text-muted">{formatBytes(it.size)}</span>
             {it.state === 'held' && (

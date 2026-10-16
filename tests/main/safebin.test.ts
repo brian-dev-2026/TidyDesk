@@ -283,4 +283,83 @@ describe('SafeBin', () => {
     expect(list.find((e) => e.id === ok.id)!.status).toBe('purged')
     expect(list.find((e) => e.id === bad.id)!.status).toBe('held')
   }, 60000)
+
+  it('gap 2: a clean where every file was skipped is "skipped", not "purged"', async () => {
+    const { work, safeBin } = await setup()
+    const e = await safeBin.quarantine([path.join(work, 'missing.txt')], { type: 'junk', title: 't' })
+    expect(e.status).toBe('skipped')
+    expect(e.count).toBe(0)
+    expect(e.expiresAt).toBeUndefined()
+  })
+
+  it('gap 3: purge only counts files it really deleted; failures stay held and are retried', async () => {
+    const root = await tmpDir()
+    let failFor = ''
+    const sb = new SafeBin({
+      history: new HistoryStore(path.join(root, 'data')),
+      holdHours: () => 5,
+      binRootFor: () => path.join(root, 'bin'),
+      remove: async (p) => {
+        if (failFor && p.endsWith(failFor)) throw Object.assign(new Error('busy'), { code: 'EBUSY' })
+        await fs.rm(p, { force: true, recursive: true })
+      }
+    })
+    const a = await write(path.join(root, 'w', 'a.txt'), '1234')
+    const b = await write(path.join(root, 'w', 'b.txt'), '12')
+    const e = await sb.quarantine([a, b], { type: 'junk', title: 't' })
+    failFor = 'b.txt'
+    const p = await sb.purge(e.id)
+    expect(p.freedBytes).toBe(4)
+    expect(p.status).toBe('held')
+    const stuck = p.items!.find((i) => i.originalPath === b)!
+    expect(stuck.state).toBe('held')
+    expect(stuck.reason).toBe('EBUSY')
+    expect(await exists(stuck.binPath)).toBe(true)
+    expect(await sb.heldBytes()).toBe(2)
+    failFor = ''
+    const again = await sb.purge(e.id)
+    expect(again.status).toBe('purged')
+    expect(again.freedBytes).toBe(6)
+  })
+
+  it('gap 4: restore reports how many files came back, failed, or were renamed', async () => {
+    const { work, safeBin } = await setup()
+    const a = await write(path.join(work, 'a.txt'), 'A')
+    const b = await write(path.join(work, 'b.txt'), 'B')
+    const c = await write(path.join(work, 'c.txt'), 'C')
+    const e = await safeBin.quarantine([a, b, c], { type: 'junk', title: 't' })
+    await write(b, 'new b') // b's original name is taken again
+    const held = (await new HistoryStore(path.join(path.dirname(work), 'data')).get(e.id))!
+    await fs.rm(held.items!.find((i) => i.originalPath === c)!.binPath) // c can no longer be restored
+    const r = await safeBin.restore(e.id)
+    expect(r.lastRestore).toEqual({ restored: 2, failed: 1, renamed: 1 })
+  })
+
+  it('gap 5: files changed after the cutoff are skipped with reason RECENT', async () => {
+    const { work, safeBin } = await setup()
+    const oldFile = await write(path.join(work, 'old.tmp'))
+    const fresh = await write(path.join(work, 'fresh.tmp'))
+    const past = new Date(Date.now() - 2 * 3600000)
+    await fs.utimes(oldFile, past, past)
+    const e = await safeBin.quarantine([oldFile, fresh], {
+      type: 'junk',
+      title: 't',
+      skipNewerThan: Date.now() - 3600000
+    })
+    expect(e.count).toBe(1)
+    expect(e.items!.find((i) => i.originalPath === fresh)).toMatchObject({ state: 'skipped', reason: 'RECENT' })
+    expect(await exists(fresh)).toBe(true)
+  })
+
+  it('gap 7: restore and purge on the same batch run one after the other', async () => {
+    const { work, safeBin, history } = await setup()
+    const files = []
+    for (let i = 0; i < 30; i++) files.push(await write(path.join(work, `f${i}.txt`), 'x'))
+    const e = await safeBin.quarantine(files, { type: 'junk', title: 't' })
+    const [r, p] = await Promise.all([safeBin.restore(e.id), safeBin.purge(e.id)])
+    expect(r.status).toBe('restored')
+    expect(p.status).toBe('restored') // purge ran second and found nothing left to delete
+    for (const f of files) expect(await exists(f)).toBe(true)
+    expect((await history.get(e.id))!.status).toBe('restored')
+  })
 })

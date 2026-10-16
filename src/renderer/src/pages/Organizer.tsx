@@ -46,7 +46,7 @@ export function OrganizerPage(): JSX.Element {
     setBusy(null)
     if (e) {
       setResult(e)
-      setPlan(null)
+      if (!e.dryRun) setPlan(null) // after a dry run the preview stays, ready to run for real
       if (!e.dryRun) toast.success(`Organized ${e.count} files`)
     }
   }

@@ -35,6 +35,7 @@ export type EntryStatus =
   | 'undone'
   | 'done'
   | 'simulated'
+  | 'skipped'
 
 export interface HistoryEntry {
   id: string
@@ -51,6 +52,8 @@ export interface HistoryEntry {
   restoredBytes?: number
   /** Bytes permanently deleted when the batch was purged. */
   freedBytes?: number
+  /** Outcome of the most recent restore on this batch. */
+  lastRestore?: { restored: number; failed: number; renamed: number }
   dryRun?: boolean
   items?: BinItem[]
   moves?: Move[]
@@ -132,7 +135,7 @@ export interface TidyApi {
   restore(id: string, paths?: string[]): R<HistoryEntry>
   purgeNow(id: string): R<HistoryEntry>
   orphans(): R<Orphan[]>
-  deleteOrphan(binDir: string): R<void>
+  deleteOrphan(binDir: string): R<true>
   openOrphan(binDir: string): R<void>
   stats(): R<Stats>
   getSettings(): R<Settings>

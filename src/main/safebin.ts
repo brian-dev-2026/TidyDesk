@@ -14,12 +14,16 @@ export interface SafeBinOpts {
   now?: () => number
   /** When true, restore/purge/deleteOrphan refuse to touch disk. */
   isDryRun?: () => boolean | Promise<boolean>
+  /** Permanently deletes one bin item (injectable so failures can be tested). */
+  remove?: (p: string) => Promise<void>
 }
 
 export interface QuarantineMeta {
   type: 'junk' | 'duplicates'
   title: string
   dryRun?: boolean
+  /** Files modified after this time (ms) are skipped with reason RECENT. */
+  skipNewerThan?: number
 }
 
 const HOUR = 3600000
@@ -58,7 +62,7 @@ function statusOf(items: BinItem[]): EntryStatus {
   if (held) return restored ? 'partial' : 'held'
   if (purged) return 'purged'
   if (restored) return 'restored'
-  return 'purged'
+  return 'skipped'
 }
 
 /**
@@ -75,6 +79,9 @@ export class SafeBin {
   /** Batches whose files are still being moved; their history entry does not exist yet. */
   private inFlight = new Set<string>()
   private isDryRun: () => boolean | Promise<boolean>
+  private remove: (p: string) => Promise<void>
+  /** Tail of the operation queue per batch, so restore/purge on one batch never overlap. */
+  private locks = new Map<string, Promise<unknown>>()
 
   constructor(o: SafeBinOpts) {
     this.history = o.history
@@ -82,6 +89,7 @@ export class SafeBin {
     this.binRootFor = o.binRootFor ?? defaultBinRoot
     this.now = o.now ?? Date.now
     this.isDryRun = o.isDryRun ?? (() => false)
+    this.remove = o.remove ?? ((p) => fs.rm(p, { force: true, recursive: true }))
   }
 
   /** Resolves (and creates once) the bin root for a file, falling back to the profile drive. */
@@ -138,6 +146,9 @@ export class SafeBin {
     const items = await mapLimit(files, meta.dryRun ? STAT_CONCURRENCY : CONCURRENCY, async (originalPath, i): Promise<BinItem> => {
       try {
         const st = await fs.lstat(originalPath)
+        if (meta.skipNewerThan !== undefined && st.mtimeMs > meta.skipNewerThan) {
+          return { originalPath, binPath: '', size: 0, state: 'skipped', reason: 'RECENT' }
+        }
         if (meta.dryRun) return { originalPath, binPath: '', size: st.size, state: 'would-remove' }
         const batchDir = await this.batchDir(originalPath, id)
         const binPath = path.join(batchDir, `${i}_${path.basename(originalPath)}`)
@@ -155,14 +166,14 @@ export class SafeBin {
       type: meta.type,
       title: meta.title,
       createdAt,
-      status: meta.dryRun ? 'simulated' : moved.length ? 'held' : 'purged',
+      status: meta.dryRun ? 'simulated' : moved.length ? 'held' : 'skipped',
       count: moved.length,
       bytes: moved.reduce((s, i) => s + i.size, 0),
       skipped: items.length - moved.length,
       items
     }
     if (meta.dryRun) entry.dryRun = true
-    else entry.expiresAt = createdAt + (await this.holdHours()) * HOUR
+    else if (moved.length) entry.expiresAt = createdAt + (await this.holdHours()) * HOUR
     await this.history.add(entry)
     return entry
   }
@@ -181,49 +192,86 @@ export class SafeBin {
     return e
   }
 
-  async restore(entryId: string, paths?: string[]): Promise<HistoryEntry> {
+  /** Runs fn after every earlier operation on the same batch has finished. */
+  private withLock<T>(entryId: string, fn: () => Promise<T>): Promise<T> {
+    const prev = this.locks.get(entryId) ?? Promise.resolve()
+    const next = prev.then(fn, fn)
+    const tail = next.catch(() => {})
+    this.locks.set(entryId, tail)
+    void tail.then(() => {
+      if (this.locks.get(entryId) === tail) this.locks.delete(entryId)
+    })
+    return next
+  }
+
+  restore(entryId: string, paths?: string[]): Promise<HistoryEntry> {
+    return this.withLock(entryId, () => this.runRestore(entryId, paths))
+  }
+
+  purge(entryId: string): Promise<HistoryEntry> {
+    return this.withLock(entryId, () => this.runPurge(entryId))
+  }
+
+  private async runRestore(entryId: string, paths?: string[]): Promise<HistoryEntry> {
     const e = await this.load(entryId)
     const wanted = paths ? new Set(paths.map((p) => p.toLowerCase())) : null
     const items = (e.items ?? []).map((i) => ({ ...i }))
+    const outcome = { restored: 0, failed: 0, renamed: 0 }
     await mapLimit(items, CONCURRENCY, async (it) => {
       if (it.state !== 'held') return
       if (wanted && !wanted.has(it.originalPath.toLowerCase())) return
       try {
-        const target = await uniquePath(it.originalPath, ' (restored)')
-        await moveFile(it.binPath, target)
+        // uniquePath + moveFile: if the name is taken in between, moveFile refuses and we try the next name
+        for (let attempt = 0; ; attempt++) {
+          const target = await uniquePath(it.originalPath, ' (restored)')
+          try {
+            await moveFile(it.binPath, target)
+            if (target !== it.originalPath) {
+              it.restoredTo = target
+              outcome.renamed++
+            }
+            break
+          } catch (err) {
+            if ((err as NodeJS.ErrnoException).code !== 'EEXIST' || attempt > 20) throw err
+          }
+        }
         it.state = 'restored'
-        if (target !== it.originalPath) it.restoredTo = target
         delete it.reason
+        outcome.restored++
       } catch (err) {
         it.reason = errCode(err)
+        outcome.failed++
       }
     })
     await this.removeEmptyBatchDirs(items)
     const restoredBytes = sumSize(items, 'restored')
-    return this.history.update(e.id, { items, status: statusOf(items), restoredBytes })
+    return this.history.update(e.id, { items, status: statusOf(items), restoredBytes, lastRestore: outcome })
   }
 
-  async purge(entryId: string): Promise<HistoryEntry> {
+  private async runPurge(entryId: string): Promise<HistoryEntry> {
     const e = await this.load(entryId)
     const items = (e.items ?? []).map((i) => ({ ...i }))
     await mapLimit(items, CONCURRENCY, async (it) => {
       if (it.state !== 'held') return
-      await fs.rm(it.binPath, { force: true, recursive: true }).catch(() => {})
-      it.state = 'purged'
+      try {
+        await this.remove(it.binPath)
+        it.state = 'purged'
+        delete it.reason
+      } catch (err) {
+        it.reason = errCode(err) // stays held; the next purge retries it
+      }
     })
-    await this.removeEmptyBatchDirs(items, true)
-    return this.history.update(e.id, {
-      items,
-      status: statusOf(items),
-      purgedAt: this.now(),
-      freedBytes: sumSize(items, 'purged')
-    })
+    const stillHeld = items.some((i) => i.state === 'held')
+    await this.removeEmptyBatchDirs(items, !stillHeld)
+    const patch: Partial<HistoryEntry> = { items, status: statusOf(items), freedBytes: sumSize(items, 'purged') }
+    if (!stillHeld && items.some((i) => i.state === 'purged')) patch.purgedAt = this.now()
+    return this.history.update(e.id, patch)
   }
 
   private async removeEmptyBatchDirs(items: BinItem[], force = false): Promise<void> {
     const dirs = new Set(items.filter((i) => i.binPath).map((i) => path.dirname(i.binPath)))
     for (const d of dirs) {
-      if (force && items.every((i) => i.state !== 'held')) {
+      if (force) {
         await fs.rm(d, { recursive: true, force: true }).catch(() => {})
       } else {
         await fs.rmdir(d).catch(() => {}) // only succeeds when empty
@@ -251,7 +299,7 @@ export class SafeBin {
   async heldBytes(): Promise<number> {
     let total = 0
     for (const e of await this.history.list()) {
-      if (e.status === 'held' || e.status === 'partial') total += e.bytes - (e.restoredBytes ?? 0)
+      if (e.status === 'held' || e.status === 'partial') total += e.bytes - (e.restoredBytes ?? 0) - (e.freedBytes ?? 0)
     }
     return total
   }
