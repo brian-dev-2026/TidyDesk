@@ -39,7 +39,11 @@ async function start(): Promise<void> {
   const dataDir = app.getPath('userData')
   const history = new HistoryStore(dataDir)
   const settings = new SettingsStore(dataDir)
-  const safeBin = new SafeBin({ history, holdHours: async () => (await settings.get()).holdHours })
+  const safeBin = new SafeBin({
+    history,
+    holdHours: async () => (await settings.get()).holdHours,
+    isDryRun: async () => (await settings.get()).dryRun
+  })
 
   const { notifyHistoryChanged } = registerIpc({ history, settings, safeBin, getWindow: () => win })
 
@@ -70,6 +74,8 @@ async function start(): Promise<void> {
     void settings.get().then((s) => (s.closeToTray ? win?.hide() : quit()))
   })
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
+  // dropping a file on the window would otherwise navigate to it with the preload attached
+  win.webContents.on('will-navigate', (e) => e.preventDefault())
   win.webContents.on('render-process-gone', (_e, details) => {
     console.error('Renderer process gone', details)
   })

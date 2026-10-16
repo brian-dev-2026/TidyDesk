@@ -13,6 +13,25 @@ export const DEFAULT_SETTINGS: Settings = {
   dryRun: false
 }
 
+const THEMES: Settings['theme'][] = ['system', 'dark', 'light']
+
+/** Drops unknown or wrongly typed values and clamps numbers to safe ranges. */
+export function sanitizeSettings(raw: unknown): Settings {
+  const r = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>
+  const out: Settings = { ...DEFAULT_SETTINGS }
+  if (THEMES.includes(r.theme as Settings['theme'])) out.theme = r.theme as Settings['theme']
+  if (typeof r.holdHours === 'number' && Number.isFinite(r.holdHours)) {
+    out.holdHours = Math.min(168, Math.max(1, Math.round(r.holdHours)))
+  }
+  if (typeof r.minDuplicateSize === 'number' && Number.isFinite(r.minDuplicateSize)) {
+    out.minDuplicateSize = Math.max(0, Math.round(r.minDuplicateSize))
+  }
+  for (const k of ['sweepWindowsRecycleBin', 'closeToTray', 'startWithWindows', 'firstRunNoticeSeen', 'dryRun'] as const) {
+    if (typeof r[k] === 'boolean') out[k] = r[k] as boolean
+  }
+  return out
+}
+
 export class SettingsStore {
   private cache: Settings | null = null
 
@@ -30,12 +49,12 @@ export class SettingsStore {
     } catch {
       // missing or corrupt — defaults
     }
-    this.cache = { ...DEFAULT_SETTINGS, ...stored }
+    this.cache = sanitizeSettings(stored)
     return { ...this.cache }
   }
 
   async set(p: Partial<Settings>): Promise<Settings> {
-    const next = { ...(await this.get()), ...p }
+    const next = sanitizeSettings({ ...(await this.get()), ...p })
     await fs.mkdir(this.dir, { recursive: true })
     const tmp = this.file + '.tmp'
     await fs.writeFile(tmp, JSON.stringify(next, null, 2))

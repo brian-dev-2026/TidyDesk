@@ -12,6 +12,8 @@ export interface SafeBinOpts {
   holdHours: () => number | Promise<number>
   binRootFor?: (file: string) => string
   now?: () => number
+  /** When true, restore/purge/deleteOrphan refuse to touch disk. */
+  isDryRun?: () => boolean | Promise<boolean>
 }
 
 export interface QuarantineMeta {
@@ -70,12 +72,16 @@ export class SafeBin {
   private now: () => number
   private preparedRoots = new Map<string, string>()
   private preparedBatches = new Set<string>()
+  /** Batches whose files are still being moved; their history entry does not exist yet. */
+  private inFlight = new Set<string>()
+  private isDryRun: () => boolean | Promise<boolean>
 
   constructor(o: SafeBinOpts) {
     this.history = o.history
     this.holdHours = o.holdHours
     this.binRootFor = o.binRootFor ?? defaultBinRoot
     this.now = o.now ?? Date.now
+    this.isDryRun = o.isDryRun ?? (() => false)
   }
 
   /** Resolves (and creates once) the bin root for a file, falling back to the profile drive. */
@@ -113,6 +119,20 @@ export class SafeBin {
     onProgress?: (done: number, total: number) => void
   ): Promise<HistoryEntry> {
     const id = this.history.newId()
+    this.inFlight.add(id)
+    try {
+      return await this.runQuarantine(id, files, meta, onProgress)
+    } finally {
+      this.inFlight.delete(id)
+    }
+  }
+
+  private async runQuarantine(
+    id: string,
+    files: string[],
+    meta: QuarantineMeta,
+    onProgress?: (done: number, total: number) => void
+  ): Promise<HistoryEntry> {
     const createdAt = this.now()
     let done = 0
     const items = await mapLimit(files, meta.dryRun ? STAT_CONCURRENCY : CONCURRENCY, async (originalPath, i): Promise<BinItem> => {
@@ -147,11 +167,17 @@ export class SafeBin {
     return entry
   }
 
+  private async assertNotDryRun(): Promise<void> {
+    if (await this.isDryRun()) throw new Error('Dry run is on — turn it off to change files')
+  }
+
   private async load(entryId: string): Promise<HistoryEntry> {
     const e = await this.history.get(entryId)
     if (!e) throw new Error('History entry not found')
     if (e.dryRun) throw new Error('Dry run entry')
     if (e.type !== 'junk' && e.type !== 'duplicates') throw new Error('Not a Safe Bin entry')
+    if (e.itemsFile && !e.items) throw new Error('The file list for this batch could not be read')
+    await this.assertNotDryRun()
     return e
   }
 
@@ -212,8 +238,12 @@ export class SafeBin {
     for (const e of await this.history.list()) {
       if (e.dryRun || (e.status !== 'held' && e.status !== 'partial')) continue
       if (e.expiresAt === undefined || e.expiresAt > now) continue
-      await this.purge(e.id)
-      n++
+      try {
+        await this.purge(e.id)
+        n++
+      } catch (err) {
+        console.error(`Could not purge batch ${e.id}`, err) // leave it held; retried next tick
+      }
     }
     return n
   }
@@ -228,7 +258,7 @@ export class SafeBin {
 
   /** Batch folders inside each root's bin that no held history entry refers to. */
   async orphans(roots: string[], binName = BIN_DIR_NAME): Promise<Orphan[]> {
-    const live = new Set<string>()
+    const live = new Set<string>(this.inFlight)
     for (const e of await this.history.list()) {
       if (e.status === 'held' || e.status === 'partial') live.add(e.id)
     }
@@ -250,13 +280,24 @@ export class SafeBin {
     return out
   }
 
-  async deleteOrphan(binDir: string): Promise<void> {
+  /** Throws unless binDir is a batch folder directly inside a Safe Bin that no live batch uses. */
+  async assertOrphan(binDir: string): Promise<string> {
     const resolved = path.resolve(binDir)
     if (path.basename(path.dirname(resolved)).toLowerCase() !== BIN_DIR_NAME) {
       throw new Error('Not a Safe Bin batch folder')
     }
     const st = await fs.lstat(resolved)
-    if (!st.isDirectory()) throw new Error('Not a Safe Bin batch folder')
-    await fs.rm(resolved, { recursive: true, force: true })
+    if (!st.isDirectory() || st.isSymbolicLink()) throw new Error('Not a Safe Bin batch folder')
+    const id = path.basename(resolved)
+    const held = (await this.history.list()).some(
+      (e) => e.id === id && (e.status === 'held' || e.status === 'partial')
+    )
+    if (held || this.inFlight.has(id)) throw new Error('This folder is in use by a batch in the Safe Bin')
+    return resolved
+  }
+
+  async deleteOrphan(binDir: string): Promise<void> {
+    await this.assertNotDryRun()
+    await fs.rm(await this.assertOrphan(binDir), { recursive: true, force: true })
   }
 }

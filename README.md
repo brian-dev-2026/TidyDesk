@@ -62,7 +62,7 @@ TidyDesk also **permanently deletes anything that has been in the Windows Recycl
 
 Turn on **Dry run** in the sidebar to test everything safely.
 
-- While it is on, TidyDesk never moves, renames or deletes a file.
+- While it is on, TidyDesk never moves, renames or deletes a file. Restore, Undo and Delete now are disabled too.
 - The Safe Bin timer and the Recycle Bin sweep are paused.
 
 ## Install

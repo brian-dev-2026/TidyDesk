@@ -135,4 +135,12 @@ describe('organizer', () => {
     expect((await history.get(e.id))!.moves).toHaveLength(2)
     await expect(undoOrganize(e.id, history)).rejects.toThrow('Dry run entry')
   })
+
+  it('undo refuses while dry run is on', async () => {
+    const { dir, history } = await setup()
+    await write(path.join(dir, 'a.jpg'))
+    const e = await applyOrganize(dir, await planOrganize(dir), history)
+    await expect(undoOrganize(e.id, history, { dryRun: true })).rejects.toThrow('Dry run is on')
+    expect(await exists(path.join(dir, 'Images', 'a.jpg'))).toBe(true)
+  })
 })

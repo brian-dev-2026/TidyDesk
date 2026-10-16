@@ -10,7 +10,8 @@ import { listDrives } from './disk'
 import { junkCategories, runningBrowsers, scanJunk } from './junk'
 import { emptyRecycleBin, recycleBinInfo } from './recyclebin'
 import { applyOrganize, planOrganize, undoOrganize } from './organizer'
-import { findDuplicates } from './duplicates'
+import { findDuplicates, validateDupRemoval } from './duplicates'
+import type { DupGroup } from '@shared/types'
 
 export interface IpcDeps {
   history: HistoryStore
@@ -25,6 +26,15 @@ export function registerIpc(deps: IpcDeps): { notifyHistoryChanged: () => void }
   const { history, settings, safeBin } = deps
   let junkFiles: Record<string, string[]> = {}
   let dupAbort: AbortController | null = null
+  let lastDupGroups: DupGroup[] | null = null
+
+  /** Only the app's own page may call the API (not a file dropped onto the window). */
+  const trusted = (url: string | undefined): boolean => {
+    if (!url) return false
+    const dev = process.env.ELECTRON_RENDERER_URL
+    if (dev && url.startsWith(dev)) return true
+    return url.startsWith('file://') && url.toLowerCase().includes('/out/renderer/index.html')
+  }
 
   const send = (channel: string, payload?: unknown): void => {
     const w = deps.getWindow()
@@ -44,7 +54,8 @@ export function registerIpc(deps: IpcDeps): { notifyHistoryChanged: () => void }
   }
 
   function handle<A extends unknown[], T>(name: string, fn: (...args: A) => Promise<T> | T): void {
-    ipcMain.handle(name, async (_e, ...args: unknown[]): Promise<Result<T>> => {
+    ipcMain.handle(name, async (e, ...args: unknown[]): Promise<Result<T>> => {
+      if (!trusted(e.senderFrame?.url)) return { ok: false, error: 'Untrusted caller' }
       try {
         return { ok: true, data: await fn(...(args as A)) }
       } catch (e) {
@@ -121,7 +132,10 @@ export function registerIpc(deps: IpcDeps): { notifyHistoryChanged: () => void }
     return strip(await withChange(applyOrganize(dir, moves as never, history, { dryRun })))
   })
 
-  handle('organizeUndo', async (id: string) => strip(await withChange(undoOrganize(id, history))))
+  handle('organizeUndo', async (id: string) => {
+    const { dryRun } = await settings.get()
+    return strip(await withChange(undoOrganize(id, history, { dryRun })))
+  })
 
   handle('dupScan', async (dir: string) => {
     dupAbort?.abort()
@@ -130,11 +144,14 @@ export function registerIpc(deps: IpcDeps): { notifyHistoryChanged: () => void }
     const { minDuplicateSize } = await settings.get()
     const report = progress('dup')
     try {
-      return await findDuplicates(dir, {
+      lastDupGroups = null
+      const groups = await findDuplicates(dir, {
         minSize: minDuplicateSize,
         signal: ac.signal,
         onProgress: (p) => report(p.phase, p.done, p.total)
       })
+      lastDupGroups = groups
+      return groups
     } finally {
       if (dupAbort === ac) dupAbort = null
     }
@@ -148,6 +165,7 @@ export function registerIpc(deps: IpcDeps): { notifyHistoryChanged: () => void }
     if (!paths.length) throw new Error('No files selected')
     const bad = paths.find((p) => isProtectedPath(p))
     if (bad) throw new Error(`Protected location: ${bad}`)
+    validateDupRemoval(lastDupGroups, paths)
     const { dryRun } = await settings.get()
     const report = progress('dup')
     const title = `Removed ${paths.length} duplicate${paths.length === 1 ? '' : 's'}`
@@ -178,7 +196,7 @@ export function registerIpc(deps: IpcDeps): { notifyHistoryChanged: () => void }
   })
 
   handle('openOrphan', async (binDir: string) => {
-    const err = await shell.openPath(binDir)
+    const err = await shell.openPath(await safeBin.assertOrphan(binDir))
     if (err) throw new Error(err)
   })
 
@@ -214,12 +232,14 @@ export function registerIpc(deps: IpcDeps): { notifyHistoryChanged: () => void }
   })
 
   handle('showInFolder', async (file: string) => {
-    const target = await fs
-      .access(file)
-      .then(() => file)
-      .catch(() => path.dirname(file))
-    if (target === file) shell.showItemInFolder(file)
-    else await shell.openPath(target)
+    // never "open" a file (that would run it): select it in Explorer, or open its folder
+    const st = await fs.lstat(file).catch(() => null)
+    if (st?.isFile()) return shell.showItemInFolder(file)
+    const dir = st?.isDirectory() ? file : path.dirname(file)
+    const dst = await fs.lstat(dir).catch(() => null)
+    if (!dst?.isDirectory()) throw new Error('That location no longer exists')
+    const err = await shell.openPath(dir)
+    if (err) throw new Error(err)
   })
 
   handle('appVersion', () => app.getVersion())

@@ -102,7 +102,13 @@ export function OrganizerPage(): JSX.Element {
               )}
             </div>
             {!result.dryRun && result.status === 'applied' && (
-              <Button icon={<Undo2 className="h-4 w-4" />} loading={busy === 'undo'} onClick={undo}>
+              <Button
+                icon={<Undo2 className="h-4 w-4" />}
+                loading={busy === 'undo'}
+                onClick={undo}
+                disabled={settings.dryRun}
+                title={settings.dryRun ? 'Turn off Dry run to change files' : undefined}
+              >
                 Undo
               </Button>
             )}

@@ -196,4 +196,91 @@ describe('SafeBin', () => {
     const skipped = e.items!.find((i) => i.state === 'skipped')!
     expect(skipped.reason).toBe('ENOENT')
   })
+
+  it('restore, purge and deleteOrphan refuse while dry run is on', async () => {
+    const root = await tmpDir()
+    const bin = path.join(root, '.tidydesk-bin')
+    let dry = false
+    const sb = new SafeBin({
+      history: new HistoryStore(path.join(root, 'data')),
+      holdHours: () => 5,
+      binRootFor: () => bin,
+      isDryRun: () => dry
+    })
+    const a = await write(path.join(root, 'w', 'a.txt'))
+    const e = await sb.quarantine([a], { type: 'junk', title: 't' })
+    await write(path.join(bin, 'stray', 'f.txt'))
+    dry = true
+    await expect(sb.restore(e.id)).rejects.toThrow('Dry run is on')
+    await expect(sb.purge(e.id)).rejects.toThrow('Dry run is on')
+    await expect(sb.deleteOrphan(path.join(bin, 'stray'))).rejects.toThrow('Dry run is on')
+    expect(await exists(e.items![0].binPath)).toBe(true)
+    expect(await exists(path.join(bin, 'stray', 'f.txt'))).toBe(true)
+  })
+
+  it('a batch that is still being moved is not an orphan and cannot be deleted', async () => {
+    const root = await tmpDir()
+    const bin = path.join(root, '.tidydesk-bin')
+    const sb = new SafeBin({ history: new HistoryStore(path.join(root, 'data')), holdHours: () => 5, binRootFor: () => bin })
+    const a = await write(path.join(root, 'w', 'a.txt'))
+    const b = await write(path.join(root, 'w', 'b.txt'))
+    let seen: unknown[] | null = null
+    let deleteError: unknown = null
+    await sb.quarantine([a, b], { type: 'junk', title: 't' }, async (done) => {
+      if (done !== 1 || seen) return
+      seen = await sb.orphans([root])
+      const dirs = await fs.readdir(bin)
+      deleteError = await sb.deleteOrphan(path.join(bin, dirs[0])).catch((err) => err)
+    })
+    await new Promise((r) => setTimeout(r, 50))
+    expect(seen).toEqual([])
+    expect(String(deleteError)).toContain('in use')
+  })
+
+  it('deleteOrphan refuses a folder that belongs to a held batch', async () => {
+    const root = await tmpDir()
+    const bin = path.join(root, '.tidydesk-bin')
+    const sb = new SafeBin({ history: new HistoryStore(path.join(root, 'data')), holdHours: () => 5, binRootFor: () => bin })
+    const a = await write(path.join(root, 'w', 'a.txt'))
+    const e = await sb.quarantine([a], { type: 'junk', title: 't' })
+    await expect(sb.deleteOrphan(path.join(bin, e.id))).rejects.toThrow('in use')
+    expect(await exists(e.items![0].binPath)).toBe(true)
+  })
+
+  it('all-skipped quarantine leaves no empty batch folder', async () => {
+    const { work, bin, safeBin } = await setup()
+    await fs.mkdir(bin, { recursive: true })
+    await safeBin.quarantine([path.join(work, 'missing.txt')], { type: 'junk', title: 't' })
+    expect(await fs.readdir(bin)).toEqual([])
+  })
+
+  it('unreadable sidecar: restore and purge refuse and keep the entry', async () => {
+    const { work, data, safeBin, history } = await setup()
+    const files: string[] = []
+    for (let i = 0; i < 2001; i++) files.push(await write(path.join(work, `f${i}.tmp`)))
+    const e = await safeBin.quarantine(files, { type: 'junk', title: 't' })
+    await fs.writeFile(path.join(data, 'history', `${e.id}.json`), '{corrupt')
+    await expect(safeBin.restore(e.id)).rejects.toThrow()
+    await expect(safeBin.purge(e.id)).rejects.toThrow()
+    const listed = (await history.list()).find((x) => x.id === e.id)!
+    expect(listed.status).toBe('held')
+    expect(await exists(path.join(data, 'history', `${e.id}.json`))).toBe(true)
+  }, 60000)
+
+  it('purgeExpired skips a batch whose file list is unreadable and purges the rest', async () => {
+    let now = 1_000_000
+    const root = await tmpDir()
+    const data = path.join(root, 'data')
+    const sb = new SafeBin({ history: new HistoryStore(data), holdHours: () => 5, binRootFor: () => path.join(root, 'bin'), now: () => now })
+    const big: string[] = []
+    for (let i = 0; i < 2001; i++) big.push(await write(path.join(root, 'w', 'big', `f${i}.tmp`)))
+    const bad = await sb.quarantine(big, { type: 'junk', title: 'big' })
+    const ok = await sb.quarantine([await write(path.join(root, 'w', 'one.txt'))], { type: 'junk', title: 'small' })
+    await fs.writeFile(path.join(data, 'history', `${bad.id}.json`), '{corrupt')
+    now += 6 * 3600000
+    expect(await sb.purgeExpired()).toBe(1)
+    const list = await new HistoryStore(data).list()
+    expect(list.find((e) => e.id === ok.id)!.status).toBe('purged')
+    expect(list.find((e) => e.id === bad.id)!.status).toBe('held')
+  }, 60000)
 })

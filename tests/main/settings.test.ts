@@ -32,4 +32,21 @@ describe('SettingsStore', () => {
     await fs.writeFile(path.join(d, 'settings.json'), 'nope')
     expect(await new SettingsStore(d).get()).toEqual(DEFAULT_SETTINGS)
   })
+
+  it('clamps holdHours and drops invalid values', async () => {
+    const d = await tmpDir()
+    await fs.writeFile(
+      path.join(d, 'settings.json'),
+      JSON.stringify({ holdHours: 0, theme: 'purple', dryRun: 'yes', minDuplicateSize: -5 })
+    )
+    const s = await new SettingsStore(d).get()
+    expect(s.holdHours).toBe(1)
+    expect(s.theme).toBe('system')
+    expect(s.dryRun).toBe(false)
+    expect(s.minDuplicateSize).toBe(0)
+    const s2 = new SettingsStore(await tmpDir())
+    expect((await s2.set({ holdHours: -3 })).holdHours).toBe(1)
+    expect((await s2.set({ holdHours: 9999 })).holdHours).toBe(168)
+    expect((await s2.set({ holdHours: 2.6 })).holdHours).toBe(3)
+  })
 })

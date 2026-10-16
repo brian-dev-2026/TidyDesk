@@ -74,19 +74,18 @@ export class HistoryStore {
     }
     const detail: Detail = { items: e.items, moves: e.moves }
     await fs.mkdir(path.dirname(this.sidecar(e.id)), { recursive: true })
-    await fs.writeFile(this.sidecar(e.id), JSON.stringify(detail))
+    const tmp = this.sidecar(e.id) + '.tmp'
+    await fs.writeFile(tmp, JSON.stringify(detail))
+    await fs.rename(tmp, this.sidecar(e.id))
     const { items: _i, moves: _m, ...rest } = e
     return { ...rest, itemsFile: `history/${e.id}.json` }
   }
 
   private async hydrate(e: HistoryEntry): Promise<HistoryEntry> {
     if (!e.itemsFile) return { ...e }
-    try {
-      const detail: Detail = JSON.parse(await fs.readFile(this.sidecar(e.id), 'utf8'))
-      return { ...e, ...detail }
-    } catch {
-      return { ...e }
-    }
+    // a missing or unreadable sidecar must surface: acting on an empty item list would lose the batch
+    const detail: Detail = JSON.parse(await fs.readFile(this.sidecar(e.id), 'utf8'))
+    return { ...e, ...detail }
   }
 
   /** Newest first, without item/move lists. */

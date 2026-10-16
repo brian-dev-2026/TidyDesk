@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import fs from 'fs/promises'
 import path from 'path'
-import { findDuplicates } from '../../src/main/duplicates'
+import { findDuplicates, validateDupRemoval } from '../../src/main/duplicates'
 import { tmpDir, write } from '../helpers/tmp'
 
 const big = (fill: number, size = 4096) => Buffer.alloc(size, fill)
@@ -96,5 +96,30 @@ describe('findDuplicates', () => {
     const phases = new Set<string>()
     await findDuplicates(d, { minSize: 1, onProgress: (p) => phases.add(p.phase) })
     expect([...phases]).toEqual(['listing', 'hashing'])
+  })
+})
+
+describe('validateDupRemoval', () => {
+  const w = (...p: string[]) => path.win32.join('C:/', ...p)
+  const f = (p: string) => ({ path: p, size: 10, mtimeMs: 1 })
+  const groups = [
+    { hash: 'h1', size: 10, files: [f(w('a', '1.jpg')), f(w('a', '2.jpg')), f(w('a', '3.jpg'))] },
+    { hash: 'h2', size: 10, files: [f(w('b', 'x.pdf')), f(w('b', 'y.pdf'))] }
+  ]
+
+  it('accepts removing all but one per group', () => {
+    expect(() => validateDupRemoval(groups, [w('a', '2.jpg'), w('A', '3.JPG'), w('b', 'y.pdf')])).not.toThrow()
+  })
+
+  it('rejects a path that was not in the scan', () => {
+    expect(() => validateDupRemoval(groups, [w('Users', 'me', 'thesis.docx')])).toThrow('not part of the last duplicate scan')
+  })
+
+  it('rejects removing every copy of a group', () => {
+    expect(() => validateDupRemoval(groups, [w('b', 'x.pdf'), w('b', 'y.pdf')])).toThrow('at least one copy')
+  })
+
+  it('rejects when there is no scan', () => {
+    expect(() => validateDupRemoval(null, [w('a', '2.jpg')])).toThrow('not part of the last duplicate scan')
   })
 })

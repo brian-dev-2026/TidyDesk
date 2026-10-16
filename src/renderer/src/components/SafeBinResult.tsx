@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { CheckCircle2, FlaskConical, RotateCcw, Trash2 } from 'lucide-react'
 import type { HistoryEntry } from '@shared/types'
 import { formatBytes } from '@shared/format'
-import { call, tidy, toast } from '../api'
+import { call, tidy, toast, useSettings } from '../api'
 import { ConfirmDialog } from './ConfirmDialog'
 import { Button, Card, Countdown } from './ui'
 
@@ -18,6 +18,8 @@ export function SafeBinResult({
 }): JSX.Element {
   const [busy, setBusy] = useState<'restore' | 'purge' | null>(null)
   const [confirmPurge, setConfirmPurge] = useState(false)
+  const { dryRun } = useSettings().settings
+  const lock = dryRun ? { disabled: true, title: 'Turn off Dry run to change files' } : {}
 
   if (entry.status === 'simulated') {
     return (
@@ -77,10 +79,11 @@ export function SafeBinResult({
         </div>
         {held && (
           <div className="flex gap-2">
-            <Button icon={<RotateCcw className="h-4 w-4" />} loading={busy === 'restore'} onClick={() => run('restore')}>
+            <Button {...lock} icon={<RotateCcw className="h-4 w-4" />} loading={busy === 'restore'} onClick={() => run('restore')}>
               Restore
             </Button>
             <Button
+              {...lock}
               variant="primary"
               icon={<Trash2 className="h-4 w-4" />}
               loading={busy === 'purge'}

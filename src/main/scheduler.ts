@@ -21,7 +21,8 @@ export function startScheduler(deps: SchedulerDeps): { stop(): void; tick(): Pro
     let changed = false
     try {
       const s = await deps.settings.get()
-      if (s.dryRun) return
+      // nothing runs in dry run, or before the user has seen the notice explaining the sweep
+      if (s.dryRun || !s.firstRunNoticeSeen) return
       try {
         changed = (await deps.safeBin.purgeExpired()) > 0
       } catch (e) {

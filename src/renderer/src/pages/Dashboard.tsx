@@ -185,7 +185,13 @@ export function DashboardPage({ onNavigate }: { onNavigate: (p: Page) => void })
                 <Button className="h-8 px-3 text-xs" icon={<FolderOpen className="h-3.5 w-3.5" />} onClick={() => void call(tidy.openOrphan(o.binDir))}>
                   Open folder
                 </Button>
-                <Button className="h-8 px-3 text-xs" variant="ghost" onClick={() => setOrphanToDelete(o)}>
+                <Button
+                  className="h-8 px-3 text-xs"
+                  variant="ghost"
+                  disabled={settings.dryRun}
+                  title={settings.dryRun ? 'Turn off Dry run to change files' : undefined}
+                  onClick={() => setOrphanToDelete(o)}
+                >
                   Delete
                 </Button>
               </li>

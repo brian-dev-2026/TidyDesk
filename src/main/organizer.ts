@@ -106,7 +106,12 @@ export async function applyOrganize(
   return entry
 }
 
-export async function undoOrganize(entryId: string, history: HistoryStore): Promise<HistoryEntry> {
+export async function undoOrganize(
+  entryId: string,
+  history: HistoryStore,
+  opts: { dryRun?: boolean } = {}
+): Promise<HistoryEntry> {
+  if (opts.dryRun) throw new Error('Dry run is on — turn it off to undo')
   const e = await history.get(entryId)
   if (!e) throw new Error('History entry not found')
   if (e.dryRun) throw new Error('Dry run entry')

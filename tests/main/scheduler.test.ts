@@ -17,7 +17,7 @@ async function setup(settings: Partial<Settings>, sweepResult: () => Promise<{ c
         return 0
       }
     },
-    settings: { get: async () => ({ ...DEFAULT_SETTINGS, ...settings }) },
+    settings: { get: async () => ({ ...DEFAULT_SETTINGS, firstRunNoticeSeen: true, ...settings }) },
     sweep: async (h) => {
       calls.push(`sweep:${h}`)
       return sweepResult()
@@ -66,6 +66,12 @@ describe('scheduler', () => {
       throw new Error('boom')
     })
     await expect(sched.tick()).resolves.toBeUndefined()
+  })
+
+  it('tick does nothing before the first-run notice is acknowledged', async () => {
+    const { calls, sched } = await setup({ firstRunNoticeSeen: false }, async () => ({ count: 1, bytes: 1 }))
+    await sched.tick()
+    expect(calls).toEqual([])
   })
 
   it('tick does nothing in dry run', async () => {

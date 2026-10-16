@@ -1,6 +1,7 @@
 import { createHash } from 'crypto'
 import { createReadStream } from 'fs'
 import fs from 'fs/promises'
+import path from 'path'
 import type { DupGroup, FileInfo } from '@shared/types'
 import { isProtectedPath } from './guards'
 import { walkFiles } from './fsutil'
@@ -105,4 +106,23 @@ export async function findDuplicates(dir: string, opts: FindOptions): Promise<Du
     }
   }
   return groups.sort((a, b) => b.size * (b.files.length - 1) - a.size * (a.files.length - 1))
+}
+
+/**
+ * Checks a removal request from the UI against the last scan: every path must be a file the scan
+ * reported, and every group must keep at least one copy.
+ */
+export function validateDupRemoval(groups: DupGroup[] | null, paths: string[]): void {
+  const key = (p: string): string => path.win32.normalize(p).toLowerCase()
+  const groupOf = new Map<string, DupGroup>()
+  for (const g of groups ?? []) for (const f of g.files) groupOf.set(key(f.path), g)
+  const removing = new Map<DupGroup, number>()
+  for (const p of paths) {
+    const g = groupOf.get(key(p))
+    if (!g) throw new Error(`${p} is not part of the last duplicate scan — scan again first`)
+    removing.set(g, (removing.get(g) ?? 0) + 1)
+  }
+  for (const [g, n] of removing) {
+    if (n >= g.files.length) throw new Error('Each group must keep at least one copy')
+  }
 }

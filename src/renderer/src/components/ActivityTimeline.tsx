@@ -12,7 +12,7 @@ import {
 } from 'lucide-react'
 import type { BinItem, HistoryEntry, Move } from '@shared/types'
 import { formatBytes } from '@shared/format'
-import { call, tidy, toast } from '../api'
+import { call, tidy, toast, useSettings } from '../api'
 import { ConfirmDialog } from './ConfirmDialog'
 import { Badge, Button, Countdown, cx, Empty, type Tone } from './ui'
 
@@ -79,6 +79,8 @@ function TimelineRow({ entry: e }: { entry: HistoryEntry }): JSX.Element {
   const [open, setOpen] = useState(false)
   const [busy, setBusy] = useState<string | null>(null)
   const [confirm, setConfirm] = useState(false)
+  const { dryRun } = useSettings().settings
+  const lock = dryRun ? { disabled: true, title: 'Turn off Dry run to change files' } : {}
   const Icon = ICONS[e.type]
   const badge = statusBadge(e)
   const held = e.status === 'held' || e.status === 'partial'
@@ -135,16 +137,16 @@ function TimelineRow({ entry: e }: { entry: HistoryEntry }): JSX.Element {
         <div className="flex shrink-0 items-center gap-1.5">
           {held && (
             <>
-              <Button icon={<RotateCcw className="h-3.5 w-3.5" />} loading={busy === 'restore'} onClick={() => act('restore')} className="h-8 px-3 text-xs">
+              <Button {...lock} icon={<RotateCcw className="h-3.5 w-3.5" />} loading={busy === 'restore'} onClick={() => act('restore')} className="h-8 px-3 text-xs">
                 Restore all
               </Button>
-              <Button variant="ghost" icon={<Trash2 className="h-3.5 w-3.5" />} loading={busy === 'purge'} onClick={() => setConfirm(true)} className="h-8 px-3 text-xs">
+              <Button {...lock} variant="ghost" icon={<Trash2 className="h-3.5 w-3.5" />} loading={busy === 'purge'} onClick={() => setConfirm(true)} className="h-8 px-3 text-xs">
                 Delete now
               </Button>
             </>
           )}
           {e.type === 'organize' && e.status === 'applied' && (
-            <Button icon={<Undo2 className="h-3.5 w-3.5" />} loading={busy === 'undo'} onClick={() => act('undo')} className="h-8 px-3 text-xs">
+            <Button {...lock} icon={<Undo2 className="h-3.5 w-3.5" />} loading={busy === 'undo'} onClick={() => act('undo')} className="h-8 px-3 text-xs">
               Undo
             </Button>
           )}
@@ -179,6 +181,7 @@ function TimelineRow({ entry: e }: { entry: HistoryEntry }): JSX.Element {
 function EntryDetails({ id, version }: { id: string; version: string }): JSX.Element {
   const [full, setFull] = useState<HistoryEntry | null>(null)
   const [busyPath, setBusyPath] = useState<string | null>(null)
+  const { dryRun } = useSettings().settings
 
   useEffect(() => {
     void call(tidy.historyEntry(id)).then((e) => e && setFull(e))
@@ -220,7 +223,7 @@ function EntryDetails({ id, version }: { id: string; version: string }): JSX.Ele
             </div>
             <span className="shrink-0 tabular-nums text-muted">{formatBytes(it.size)}</span>
             {it.state === 'held' && (
-              <Button className="h-7 px-2 text-xs" loading={busyPath === it.originalPath} onClick={() => restoreOne(it.originalPath)}>
+              <Button className="h-7 px-2 text-xs" disabled={dryRun} title={dryRun ? 'Turn off Dry run to change files' : undefined} loading={busyPath === it.originalPath} onClick={() => restoreOne(it.originalPath)}>
                 Restore
               </Button>
             )}
