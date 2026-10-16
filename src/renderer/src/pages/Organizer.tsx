@@ -1,8 +1,9 @@
 import { useMemo, useState } from 'react'
-import { CheckCircle2, FlaskConical, FolderOpen, FolderTree, Undo2, Wand2 } from 'lucide-react'
+import { CheckCircle2, FlaskConical, FolderOpen, FolderTree, SlidersHorizontal, Undo2, Wand2 } from 'lucide-react'
 import type { HistoryEntry, Move } from '@shared/types'
 import { call, tidy, toast, useSettings } from '../api'
-import { Badge, Button, Card, Checkbox, Empty, PageHeader } from '../components/ui'
+import { Badge, Button, Card, Checkbox, cx, Empty, PageHeader } from '../components/ui'
+import { CategoryEditor } from '../components/CategoryEditor'
 
 function relativeTo(dir: string, p: string): string {
   return p.toLowerCase().startsWith(dir.toLowerCase()) ? p.slice(dir.length).replace(/^[\\/]/, '') : p
@@ -13,7 +14,8 @@ function basename(p: string): string {
 }
 
 export function OrganizerPage(): JSX.Element {
-  const { settings } = useSettings()
+  const { settings, update } = useSettings()
+  const [editing, setEditing] = useState(false)
   const [dir, setDir] = useState<string | null>(null)
   const [plan, setPlan] = useState<Move[] | null>(null)
   const [excluded, setExcluded] = useState<Set<string>>(new Set())
@@ -72,6 +74,52 @@ export function OrganizerPage(): JSX.Element {
             {dir ? 'Choose another folder' : 'Choose folder'}
           </Button>
         }
+      />
+
+      <div className="mb-5 flex flex-wrap items-center gap-3">
+        <span className="text-sm text-muted">Sort by</span>
+        <div className="flex items-center gap-1 rounded-xl border border-line bg-raised p-1" role="radiogroup" aria-label="Sort by">
+          {(
+            [
+              ['type', 'Type'],
+              ['date', 'Date (year / month)']
+            ] as const
+          ).map(([m, label]) => (
+            <button
+              key={m}
+              role="radio"
+              aria-checked={settings.organizeMode === m}
+              onClick={async () => {
+                await update({ organizeMode: m })
+                if (dir) {
+                  const p = await call(tidy.organizePlan(dir))
+                  if (p) setPlan(p)
+                }
+              }}
+              className={cx(
+                'h-8 rounded-lg px-3 text-xs font-medium transition',
+                settings.organizeMode === m ? 'bg-surface text-fg shadow-sm' : 'text-muted hover:text-fg'
+              )}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        {settings.organizeMode === 'type' && (
+          <Button className="h-8 px-3 text-xs" icon={<SlidersHorizontal className="h-3.5 w-3.5" />} onClick={() => setEditing(true)}>
+            Customize categories
+          </Button>
+        )}
+      </div>
+      <CategoryEditor
+        open={editing}
+        onClose={async () => {
+          setEditing(false)
+          if (dir) {
+            const p = await call(tidy.organizePlan(dir))
+            if (p) setPlan(p)
+          }
+        }}
       />
 
       {result && (

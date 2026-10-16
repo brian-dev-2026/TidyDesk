@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import fs from 'fs/promises'
 import path from 'path'
-import { planOrganize, applyOrganize, undoOrganize } from '../../src/main/organizer'
+import { planOrganize, applyOrganize, undoOrganize, validateCategories } from '../../src/main/organizer'
 import { HistoryStore } from '../../src/main/history'
 import { tmpDir, write, exists, snapshot } from '../helpers/tmp'
 
@@ -173,5 +173,60 @@ describe('organizer', () => {
     expect(e.count).toBe(0)
     expect(e.skipped).toBe(1)
     expect(await exists(a)).toBe(true)
+  })
+
+  it('date mode plans YYYY/YYYY-MM folders from mtime', async () => {
+    const { dir } = await setup()
+    const a = await write(path.join(dir, 'a.pdf'))
+    const b = await write(path.join(dir, 'b.jpg'))
+    await fs.utimes(a, new Date(2024, 2, 5), new Date(2024, 2, 5))
+    await fs.utimes(b, new Date(2026, 9, 1), new Date(2026, 9, 1))
+    const plan = await planOrganize(dir, { mode: 'date' })
+    const by = Object.fromEntries(plan.map((m) => [path.basename(m.from), m]))
+    expect(rel(dir, by['a.pdf'].to)).toBe(path.join('2024', '2024-03', 'a.pdf'))
+    expect(by['a.pdf'].category).toBe('2024-03')
+    expect(rel(dir, by['b.jpg'].to)).toBe(path.join('2026', '2026-10', 'b.jpg'))
+  })
+
+  it('date mode apply then undo round-trip', async () => {
+    const { dir, history } = await setup()
+    await fs.mkdir(path.join(dir, '2024'))
+    const a = await write(path.join(dir, 'a.pdf'), 'A')
+    const b = await write(path.join(dir, 'b.jpg'), 'B')
+    await fs.utimes(a, new Date(2024, 2, 5), new Date(2024, 2, 5))
+    await fs.utimes(b, new Date(2025, 0, 9), new Date(2025, 0, 9))
+    const before = await snapshot(dir)
+    const e = await applyOrganize(dir, await planOrganize(dir, { mode: 'date' }), history)
+    expect(e.count).toBe(2)
+    expect(await exists(path.join(dir, '2025', '2025-01', 'b.jpg'))).toBe(true)
+    await undoOrganize(e.id, history)
+    expect(await snapshot(dir)).toEqual(before)
+  })
+
+  it('custom categories are used for planning', async () => {
+    const { dir } = await setup()
+    await write(path.join(dir, 'scan.pdf'))
+    await write(path.join(dir, 'pic.png'))
+    const plan = await planOrganize(dir, { categories: { Paperwork: ['pdf'], Pictures: ['png'] } })
+    const by = Object.fromEntries(plan.map((m) => [path.basename(m.from), m.category]))
+    expect(by).toEqual({ 'scan.pdf': 'Paperwork', 'pic.png': 'Pictures' })
+  })
+
+  it('validateCategories normalises ".JPG" to "jpg" and trims names', () => {
+    expect(validateCategories({ ' Photos ': ['.JPG', ' png '] })).toEqual({ Photos: ['jpg', 'png'] })
+  })
+
+  it.each([
+    [{ A: ['jpg'], B: ['JPG'] }, 'in two categories'],
+    [{ CON: ['x'] }, 'not a valid folder name'],
+    [{ 'a/b': ['x'] }, 'not a valid folder name'],
+    [{ 'trail.': ['x'] }, 'not a valid folder name'],
+    [{ Other: ['x'] }, 'reserved'],
+    [{ A: ['x'], a: ['y'] }, 'used twice'],
+    [{ A: [''] }, 'empty extension'],
+    [{}, 'at least one category'],
+    ['nope', 'at least one category']
+  ])('validateCategories rejects %j', (input, message) => {
+    expect(() => validateCategories(input)).toThrow(message)
   })
 })

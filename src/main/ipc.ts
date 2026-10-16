@@ -145,7 +145,10 @@ export function registerIpc(deps: IpcDeps): { notifyHistoryChanged: () => void }
     return r.canceled ? null : r.filePaths[0] ?? null
   })
 
-  handle('organizePlan', async (dir: string) => planOrganize(dir, { exclusions: (await settings.get()).exclusions }))
+  handle('organizePlan', async (dir: string) => {
+    const s = await settings.get()
+    return planOrganize(dir, { exclusions: s.exclusions, mode: s.organizeMode, categories: s.organizerCategories })
+  })
 
   handle('organizeApply', async (dir: string, moves) => {
     const { dryRun, exclusions } = await settings.get()

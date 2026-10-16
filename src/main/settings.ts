@@ -2,6 +2,7 @@ import fs from 'fs/promises'
 import path from 'path'
 import type { Settings } from '@shared/types'
 import { normaliseExclusions } from './exclusions'
+import { validateCategories } from './organizer'
 
 export const DEFAULT_SETTINGS: Settings = {
   theme: 'system',
@@ -44,6 +45,13 @@ export function sanitizeSettings(raw: unknown): Settings {
   }
   if (typeof r.lastAutoClean === 'number' && Number.isFinite(r.lastAutoClean) && r.lastAutoClean >= 0) out.lastAutoClean = r.lastAutoClean
   if (r.organizeMode === 'type' || r.organizeMode === 'date') out.organizeMode = r.organizeMode
+  if (r.organizerCategories != null) {
+    try {
+      out.organizerCategories = validateCategories(r.organizerCategories)
+    } catch {
+      // an invalid stored table falls back to the built-in categories
+    }
+  }
   return out
 }
 
@@ -69,7 +77,11 @@ export class SettingsStore {
   }
 
   async set(p: Partial<Settings>): Promise<Settings> {
-    const next = sanitizeSettings({ ...(await this.get()), ...p })
+    // a new category table is checked strictly so the user sees what is wrong; null resets it
+    if (p.organizerCategories != null) p = { ...p, organizerCategories: validateCategories(p.organizerCategories) }
+    const merged: Record<string, unknown> = { ...(await this.get()), ...p }
+    if (p.organizerCategories === null) delete merged.organizerCategories
+    const next = sanitizeSettings(merged)
     await fs.mkdir(this.dir, { recursive: true })
     const tmp = this.file + '.tmp'
     await fs.writeFile(tmp, JSON.stringify(next, null, 2))

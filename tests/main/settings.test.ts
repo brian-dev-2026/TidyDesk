@@ -86,4 +86,18 @@ describe('SettingsStore', () => {
       organizeMode: 'type'
     })
   })
+
+  it('organizerCategories are validated on save and can be reset with null', async () => {
+    const s = new SettingsStore(await tmpDir())
+    expect((await s.set({ organizerCategories: { Pics: ['.PNG'] } })).organizerCategories).toEqual({ Pics: ['png'] })
+    await expect(s.set({ organizerCategories: { Other: ['x'] } })).rejects.toThrow('reserved')
+    expect((await s.get()).organizerCategories).toEqual({ Pics: ['png'] })
+    expect((await s.set({ organizerCategories: null as never })).organizerCategories).toBeUndefined()
+  })
+
+  it('an invalid stored category table is dropped on load', async () => {
+    const d = await tmpDir()
+    await fs.writeFile(path.join(d, 'settings.json'), JSON.stringify({ organizerCategories: { CON: ['x'] } }))
+    expect((await new SettingsStore(d).get()).organizerCategories).toBeUndefined()
+  })
 })
