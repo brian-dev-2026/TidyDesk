@@ -75,28 +75,26 @@ function checkAbort(signal?: AbortSignal): void {
   if (signal?.aborted) throw new Error('Cancelled')
 }
 
-/** Resolves junctions, links and mapped paths so two names for one folder become one root. */
-async function realRoot(dir: string): Promise<string> {
-  try {
-    return await fs.realpath(dir)
-  } catch {
-    return path.resolve(dir)
-  }
+/** The real location of a folder (junctions, links, mapped drives and 8.3 names resolved), lowercased. */
+async function realKey(dir: string): Promise<string> {
+  const real = await fs.realpath(dir).catch(() => path.resolve(dir))
+  return real.toLowerCase()
 }
 
-/** Unique roots, dropping any that sit inside another, so no file is listed twice. */
-function distinctRoots(dirs: string[]): string[] {
-  // path.resolve drops trailing separators except on a drive root such as C:\
-  const key = (p: string): string => path.resolve(p).toLowerCase()
-  const keys = [...new Set(dirs.map(key))]
-  const inside = (k: string): boolean => keys.some((o) => o !== k && k.startsWith(o.endsWith(path.sep) ? o : o + path.sep))
+/**
+ * Unique roots, dropping any whose real location equals or sits inside another's, so no file is
+ * listed twice. Roots keep the form they were given in, so results and exclusions match it.
+ */
+async function distinctRoots(dirs: string[]): Promise<string[]> {
+  const items = await Promise.all(dirs.map(async (d) => ({ dir: path.resolve(d), key: await realKey(d) })))
+  // a drive root such as c:\ already ends with a separator
+  const under = (k: string, o: string): boolean => k.startsWith(o.endsWith(path.sep) ? o : o + path.sep)
   const out: string[] = []
   const seen = new Set<string>()
-  for (const d of dirs) {
-    const k = key(d)
-    if (seen.has(k) || inside(k)) continue
-    seen.add(k)
-    out.push(path.resolve(d))
+  for (const { dir, key } of items) {
+    if (seen.has(key) || items.some((o) => o.key !== key && under(key, o.key))) continue
+    seen.add(key)
+    out.push(dir)
   }
   return out
 }
@@ -123,7 +121,7 @@ export async function usableRoots(
  * folders are skipped, and two paths to the same file on disk never count as copies.
  */
 export async function findDuplicates(dirs: string | string[], opts: FindOptions): Promise<DupGroup[]> {
-  const roots = distinctRoots(await Promise.all((typeof dirs === 'string' ? [dirs] : dirs).map(realRoot)))
+  const roots = await distinctRoots(typeof dirs === 'string' ? [dirs] : dirs)
   for (const dir of roots) {
     if (isProtectedPath(dir)) throw new Error('Protected folder')
     if (opts.exclusions && isExcluded(dir, opts.exclusions)) throw new Error('This folder is in your exclusions list')

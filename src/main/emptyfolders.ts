@@ -8,14 +8,18 @@ import { isExcluded } from './exclusions'
 
 const SKIP_NAMES = new Set(['.git', BIN_DIR_NAME])
 
-/** Lowercase full paths of every Hidden or System folder under dir (one PowerShell call). */
+/**
+ * Lowercase full paths of every Hidden or System folder under dir (one PowerShell call). PowerShell
+ * may spell the folder differently (it expands 8.3 short names), so it reports paths relative to dir.
+ */
 function hiddenFolders(dir: string): Promise<Set<string>> {
   if (process.platform !== 'win32') return Promise.resolve(new Set())
   const script =
     '[Console]::OutputEncoding = [Text.Encoding]::UTF8; ' +
+    '$root = (Get-Item -LiteralPath $env:TIDY_DIR -Force).FullName.TrimEnd([char]92); ' +
     'Get-ChildItem -LiteralPath $env:TIDY_DIR -Recurse -Force -Directory -ErrorAction SilentlyContinue | ' +
     'Where-Object { $_.Attributes -band ([IO.FileAttributes]::Hidden -bor [IO.FileAttributes]::System) } | ' +
-    'ForEach-Object { $_.FullName }'
+    'ForEach-Object { $_.FullName.Substring($root.Length).TrimStart([char]92) }'
   return new Promise((resolve, reject) => {
     execFile(
       'powershell.exe',
@@ -23,7 +27,8 @@ function hiddenFolders(dir: string): Promise<Set<string>> {
       { env: { ...process.env, TIDY_DIR: dir }, windowsHide: true, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 },
       (err, out) => {
         if (err) return reject(new Error('Could not read folder attributes'))
-        resolve(new Set(out.split(/\r?\n/).map((l) => l.trim().toLowerCase()).filter(Boolean)))
+        const base = path.resolve(dir)
+        resolve(new Set(out.split(/\r?\n/).map((l) => l.trim()).filter(Boolean).map((rel) => path.join(base, rel).toLowerCase())))
       }
     )
   })

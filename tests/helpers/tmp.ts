@@ -44,3 +44,12 @@ export async function snapshot(dir: string): Promise<Record<string, string>> {
 afterEach(async () => {
   while (dirs.length) await fs.rm(dirs.pop()!, { recursive: true, force: true }).catch(() => {})
 })
+
+/** A new temp folder addressed by its 8.3 short name (as on CI runners), e.g. C:\Users\RUNNER~1\... */
+export async function shortTmpDir(): Promise<string> {
+  const d = await tmpDir()
+  const long = path.join(d, 'A Long Folder Name For Short Paths')
+  await fs.mkdir(long)
+  const { execSync } = await import('child_process')
+  return execSync(`for %I in ("${long}") do @echo %~sI`, { encoding: 'utf8', shell: 'cmd.exe' }).trim()
+}

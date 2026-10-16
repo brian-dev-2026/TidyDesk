@@ -4,7 +4,7 @@ import path from 'path'
 import { execFileSync } from 'child_process'
 import { findEmptyFolders, removeEmptyFolders, restoreEmptyFolders } from '../../src/main/emptyfolders'
 import { HistoryStore } from '../../src/main/history'
-import { tmpDir, write, exists } from '../helpers/tmp'
+import { shortTmpDir, tmpDir, write, exists } from '../helpers/tmp'
 
 async function setup() {
   const root = await tmpDir()
@@ -47,6 +47,15 @@ describe('empty folders', () => {
     await fs.mkdir(path.join(dir, 'plain'))
     execFileSync('attrib', ['+h', path.join(dir, 'secret')])
     expect(rel(dir, await findEmptyFolders(dir))).toEqual(['plain'])
+  })
+
+  it.runIf(process.platform === 'win32')('skips hidden folders when the folder is given by its short 8.3 name', async () => {
+    const dir = await shortTmpDir()
+    await fs.mkdir(path.join(dir, 'secret'))
+    await fs.mkdir(path.join(dir, 'plain'))
+    execFileSync('attrib', ['+h', path.join(dir, 'secret')])
+    expect(dir).toContain('~')
+    expect((await findEmptyFolders(dir)).map((p) => path.basename(p))).toEqual(['plain'])
   })
 
   it('removes the folders and records history', async () => {

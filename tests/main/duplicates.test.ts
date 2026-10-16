@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import fs from 'fs/promises'
 import path from 'path'
 import { findDuplicates, planDuplicateRemovals, recheckRemovals, usableRoots, USER_CONTENT_EXTENSIONS } from '../../src/main/duplicates'
-import { tmpDir, write } from '../helpers/tmp'
+import { shortTmpDir, tmpDir, write } from '../helpers/tmp'
 
 const big = (fill: number, size = 4096) => Buffer.alloc(size, fill)
 
@@ -210,6 +210,17 @@ describe('automatic duplicate safety', () => {
     const r = await usableRoots([ok, ex, path.join(d, 'gone'), 'C:\\Windows'], [ex])
     expect(r.roots).toEqual([ok])
     expect(r.skipped.map((s) => path.basename(s.dir))).toEqual(['excluded', 'gone', 'Windows'])
+  })
+})
+
+describe('short 8.3 paths', () => {
+  it.runIf(process.platform === 'win32')('reports paths under the folder as given and honours exclusions in the same form', async () => {
+    const d = await shortTmpDir()
+    const a = await write(path.join(d, 'a.jpg'), big(1))
+    const b = await write(path.join(d, 'sub', 'b.jpg'), big(1))
+    await write(path.join(d, 'private', 'c.jpg'), big(1))
+    const groups = await findDuplicates(d, { minSize: 1, exclusions: [path.join(d, 'private')] })
+    expect(groups.map((g) => g.files.map((f) => f.path).sort())).toEqual([[a, b].sort()])
   })
 })
 

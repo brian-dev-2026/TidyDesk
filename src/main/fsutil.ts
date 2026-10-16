@@ -37,12 +37,16 @@ export async function moveFile(from: string, to: string): Promise<void> {
       throw err.code === 'EEXIST' ? eexist(to) : err
     })
   }
+  // Node 20 (inside Electron) clears the read-only flag to delete a read-only file, and a hard
+  // link shares that flag, so remember it and put it back afterwards
+  const readOnly = await fs.lstat(from).then((st) => (st.mode & 0o200) === 0, () => false)
   try {
     await fs.unlink(from)
   } catch (unlinkErr) {
     await fs.unlink(to).catch(() => {}) // source is locked: undo, leave the original in place
     throw unlinkErr
   }
+  if (readOnly) await fs.chmod(to, 0o444).catch(() => {})
 }
 
 /** Returns p if free, otherwise "name<suffix>.ext", "name (1).ext", "name (2).ext"… (first free one). */
