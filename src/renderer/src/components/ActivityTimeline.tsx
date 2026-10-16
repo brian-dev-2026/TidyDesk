@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react'
 import {
   ChevronDown,
   Copy,
+  FolderX,
+  HardDrive,
   FolderOpen,
   FolderTree,
   History,
@@ -17,7 +19,14 @@ import { ConfirmDialog } from './ConfirmDialog'
 import { announcePurge, announceRestore, reasonText } from '../messages'
 import { Badge, Button, Countdown, cx, Empty, type Tone } from './ui'
 
-const ICONS = { junk: Trash2, duplicates: Copy, organize: FolderTree, 'recycle-sweep': Recycle }
+const ICONS = {
+  junk: Trash2,
+  duplicates: Copy,
+  organize: FolderTree,
+  'recycle-sweep': Recycle,
+  'large-files': HardDrive,
+  'empty-folders': FolderX
+}
 const SHOWN = 200
 
 function relTime(ms: number): string {

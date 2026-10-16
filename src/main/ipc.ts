@@ -12,6 +12,7 @@ import { emptyRecycleBin, recycleBinInfo } from './recyclebin'
 import { applyOrganize, planOrganize, undoOrganize } from './organizer'
 import { findDuplicates, validateDupRemoval } from './duplicates'
 import { getLog } from './logger'
+import { findLargeFiles } from './largefiles'
 import type { DupGroup } from '@shared/types'
 
 export interface IpcDeps {
@@ -28,6 +29,8 @@ export function registerIpc(deps: IpcDeps): { notifyHistoryChanged: () => void }
   let junkFiles: Record<string, string[]> = {}
   let dupAbort: AbortController | null = null
   let lastDupGroups: DupGroup[] | null = null
+  let largeAbort: AbortController | null = null
+  let lastLarge: Set<string> | null = null
 
   /** Only the app's own page may call the API (not a file dropped onto the window). */
   const trusted = (url: string | undefined): boolean => {
@@ -190,6 +193,48 @@ export function registerIpc(deps: IpcDeps): { notifyHistoryChanged: () => void }
         safeBin.quarantine(paths, { type: 'duplicates', title, dryRun, exclusions }, (d, t) => report('Moving', d, t))
       )
     )
+  })
+
+  handle('largeScan', async (dir: string) => {
+    largeAbort?.abort()
+    const ac = new AbortController()
+    largeAbort = ac
+    const { exclusions } = await settings.get()
+    const report = progress('large')
+    try {
+      lastLarge = null
+      const files = await findLargeFiles(dir, {
+        minSize: 50 * 1024 * 1024,
+        limit: 200,
+        exclusions,
+        signal: ac.signal,
+        onProgress: (seen) => report(`Scanned ${seen.toLocaleString('en-US')} files`, 0, 0)
+      })
+      lastLarge = new Set(files.map((f) => f.path.toLowerCase()))
+      return files
+    } finally {
+      if (largeAbort === ac) largeAbort = null
+    }
+  })
+
+  handle('largeCancel', () => {
+    largeAbort?.abort()
+  })
+
+  handle('largeRemove', async (paths: string[]) => {
+    if (!paths.length) throw new Error('No files selected')
+    const unknown = paths.find((p) => !lastLarge?.has(p.toLowerCase()))
+    if (unknown) throw new Error(`${unknown} is not part of the last scan — scan again first`)
+    const bad = paths.find((p) => isProtectedPath(p))
+    if (bad) throw new Error(`Protected location: ${bad}`)
+    const { dryRun, exclusions } = await settings.get()
+    const report = progress('large')
+    const title = `Removed ${paths.length} large file${paths.length === 1 ? '' : 's'}`
+    const entry = await withChange(
+      safeBin.quarantine(paths, { type: 'large-files', title, dryRun, exclusions }, (d, t) => report('Moving', d, t))
+    )
+    if (!dryRun) for (const p of paths) lastLarge?.delete(p.toLowerCase())
+    return strip(entry)
   })
 
   handle('history', () => history.list())

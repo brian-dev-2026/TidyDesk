@@ -21,7 +21,7 @@ export interface SafeBinOpts {
 }
 
 export interface QuarantineMeta {
-  type: 'junk' | 'duplicates'
+  type: 'junk' | 'duplicates' | 'large-files'
   title: string
   dryRun?: boolean
   /** Files modified after this time (ms) are skipped with reason RECENT. */
@@ -193,7 +193,7 @@ export class SafeBin {
     const e = await this.history.get(entryId)
     if (!e) throw new Error('History entry not found')
     if (e.dryRun) throw new Error('Dry run entry')
-    if (e.type !== 'junk' && e.type !== 'duplicates') throw new Error('Not a Safe Bin entry')
+    if (e.type !== 'junk' && e.type !== 'duplicates' && e.type !== 'large-files') throw new Error('Not a Safe Bin entry')
     if (e.itemsFile && !e.items) throw new Error('The file list for this batch could not be read')
     await this.assertNotDryRun()
     return e

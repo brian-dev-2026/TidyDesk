@@ -1,14 +1,15 @@
-import { Copy, FlaskConical, FolderTree, LayoutDashboard, Settings, Sparkles, Trash2 } from 'lucide-react'
+import { Copy, FlaskConical, FolderTree, FolderX, HardDrive, LayoutDashboard, Settings, Sparkles, Trash2 } from 'lucide-react'
 import { useSettings } from '../api'
 import { cx, Toggle } from './ui'
 
-export type Page = 'dashboard' | 'junk' | 'organizer' | 'duplicates' | 'settings'
+export type Page = 'dashboard' | 'junk' | 'organizer' | 'duplicates' | 'large' | 'empty' | 'settings'
 
 const NAV: { id: Page; label: string; icon: typeof Copy }[] = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { id: 'junk', label: 'Junk Cleaner', icon: Trash2 },
   { id: 'organizer', label: 'Organizer', icon: FolderTree },
   { id: 'duplicates', label: 'Duplicates', icon: Copy },
+  { id: 'large', label: 'Large Files', icon: HardDrive },
   { id: 'settings', label: 'Settings', icon: Settings }
 ]
 

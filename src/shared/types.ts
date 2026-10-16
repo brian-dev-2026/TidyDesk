@@ -24,7 +24,7 @@ export interface Move {
   done?: boolean
 }
 
-export type HistoryType = 'junk' | 'duplicates' | 'organize' | 'recycle-sweep'
+export type HistoryType = 'junk' | 'duplicates' | 'organize' | 'recycle-sweep' | 'large-files' | 'empty-folders'
 
 export type EntryStatus =
   | 'held'
@@ -101,7 +101,7 @@ export interface DriveInfo {
 }
 
 export interface Progress {
-  op: 'junk' | 'dup' | 'organize' | 'restore'
+  op: 'junk' | 'dup' | 'organize' | 'restore' | 'large' | 'empty'
   phase: string
   done: number
   total: number
@@ -138,6 +138,9 @@ export interface TidyApi {
   dupScan(dir: string): R<DupGroup[]>
   dupCancel(): R<void>
   dupRemove(paths: string[]): R<HistoryEntry>
+  largeScan(dir: string): R<FileInfo[]>
+  largeCancel(): R<void>
+  largeRemove(paths: string[]): R<HistoryEntry>
   history(): R<HistoryEntry[]>
   historyEntry(id: string): R<HistoryEntry>
   restore(id: string, paths?: string[]): R<HistoryEntry>

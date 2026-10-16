@@ -10,6 +10,7 @@ import { JunkPage } from './pages/Junk'
 import { OrganizerPage } from './pages/Organizer'
 import { DuplicatesPage } from './pages/Duplicates'
 import { SettingsPage } from './pages/Settings'
+import { LargeFilesPage } from './pages/LargeFiles'
 
 function useTheme(theme: Settings['theme'] | undefined): void {
   useEffect(() => {
@@ -55,6 +56,7 @@ export function App(): JSX.Element {
               {page === 'junk' && <JunkPage />}
               {page === 'organizer' && <OrganizerPage />}
               {page === 'duplicates' && <DuplicatesPage />}
+              {page === 'large' && <LargeFilesPage />}
               {page === 'settings' && <SettingsPage />}
             </div>
           </main>
