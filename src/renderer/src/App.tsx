@@ -5,6 +5,7 @@ import { Sidebar, type Page } from './components/Sidebar'
 import { TitleBar } from './components/TitleBar'
 import { Toasts } from './components/Toasts'
 import { FirstRunNotice } from './components/FirstRunNotice'
+import { UpdateBanner } from './components/UpdateBanner'
 import { DashboardPage } from './pages/Dashboard'
 import { JunkPage } from './pages/Junk'
 import { OrganizerPage } from './pages/Organizer'
@@ -53,6 +54,7 @@ export function App(): JSX.Element {
           <main className="relative min-w-0 flex-1 overflow-y-auto">
             <div className="pointer-events-none absolute inset-x-0 top-0 h-64 bg-gradient-to-b from-indigo-500/[0.07] to-transparent" />
             <div className="relative mx-auto max-w-5xl px-8 py-7">
+              <UpdateBanner />
               {page === 'dashboard' && <DashboardPage onNavigate={setPage} />}
               {page === 'junk' && <JunkPage />}
               {page === 'organizer' && <OrganizerPage />}

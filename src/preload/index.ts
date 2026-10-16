@@ -41,7 +41,11 @@ const channels = [
   'appVersion',
   'logRenderer',
   'openLogs',
-  'exportCsv'
+  'exportCsv',
+  'updateStatus',
+  'updateCheck',
+  'updateDownload',
+  'updateInstall'
 ] as const
 
 const api = {
@@ -50,6 +54,11 @@ const api = {
     const listener = (_e: unknown, p: Progress): void => cb(p)
     ipcRenderer.on('progress', listener)
     return () => ipcRenderer.removeListener('progress', listener)
+  },
+  onUpdateStatus(cb: (s: unknown) => void) {
+    const listener = (_e: unknown, s: unknown): void => cb(s)
+    ipcRenderer.on('update-status', listener)
+    return () => ipcRenderer.removeListener('update-status', listener)
   },
   onHistoryChanged(cb: () => void) {
     const listener = (): void => cb()

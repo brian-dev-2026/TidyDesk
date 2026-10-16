@@ -119,6 +119,13 @@ export interface Orphan {
   bytes: number
 }
 
+export interface UpdateStatus {
+  state: 'idle' | 'checking' | 'available' | 'downloading' | 'ready' | 'none' | 'error' | 'disabled'
+  version?: string
+  percent?: number
+  error?: string
+}
+
 export interface Stats {
   heldBytes: number
   freedAllTime: number
@@ -162,6 +169,11 @@ export interface TidyApi {
   logRenderer(message: string): R<void>
   openLogs(): R<void>
   exportCsv(): R<string | null>
+  updateStatus(): R<UpdateStatus>
+  updateCheck(): R<void>
+  updateDownload(): R<void>
+  updateInstall(): R<void>
+  onUpdateStatus(cb: (s: UpdateStatus) => void): () => void
   onProgress(cb: (p: Progress) => void): () => void
   onHistoryChanged(cb: () => void): () => void
   win: { minimize(): void; maximize(): void; close(): void }

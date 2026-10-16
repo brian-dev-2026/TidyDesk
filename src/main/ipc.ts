@@ -14,6 +14,7 @@ import { emptyRecycleBin, recycleBinInfo } from './recyclebin'
 import { applyOrganize, planOrganize, undoOrganize } from './organizer'
 import { findDuplicates, validateDupRemoval } from './duplicates'
 import { getLog } from './logger'
+import type { Updater } from './updater'
 import { findLargeFiles } from './largefiles'
 import { CSV_HEADER, csvLine, historyToCsvRows } from './csv'
 import { findEmptyFolders, removeEmptyFolders, restoreEmptyFolders } from './emptyfolders'
@@ -24,11 +25,12 @@ export interface IpcDeps {
   settings: SettingsStore
   safeBin: SafeBin
   getWindow: () => BrowserWindow | null
+  getUpdater: () => Updater | null
 }
 
 const IMAGE_EXT = /\.(jpe?g|png|gif|bmp|webp|heic|tiff?|ico)$/i
 
-export function registerIpc(deps: IpcDeps): { notifyHistoryChanged: () => void } {
+export function registerIpc(deps: IpcDeps): { notifyHistoryChanged: () => void; sendUpdateStatus: (s: unknown) => void } {
   const { history, settings, safeBin } = deps
   let junkFiles: Record<string, string[]> = {}
   let dupAbort: AbortController | null = null
@@ -337,6 +339,17 @@ export function registerIpc(deps: IpcDeps): { notifyHistoryChanged: () => void }
 
   handle('appVersion', () => app.getVersion())
 
+  handle('updateStatus', () => deps.getUpdater()?.status() ?? { state: 'disabled' })
+  handle('updateCheck', async () => {
+    await deps.getUpdater()?.check()
+  })
+  handle('updateDownload', async () => {
+    await deps.getUpdater()?.download()
+  })
+  handle('updateInstall', () => {
+    deps.getUpdater()?.install()
+  })
+
   handle('openLogs', async () => {
     const dir = path.join(app.getPath('userData'), 'logs')
     await fs.mkdir(dir, { recursive: true })
@@ -376,7 +389,7 @@ export function registerIpc(deps: IpcDeps): { notifyHistoryChanged: () => void }
     else if (action === 'close') w.close()
   })
 
-  return { notifyHistoryChanged }
+  return { notifyHistoryChanged, sendUpdateStatus: (s) => send('update-status', s) }
 }
 
 /** Result payloads omit large item lists; the renderer loads them on demand via historyEntry. */

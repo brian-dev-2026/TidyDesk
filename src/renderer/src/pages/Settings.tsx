@@ -6,6 +6,7 @@ import { Card, cx, PageHeader, Toggle } from '../components/ui'
 import { ExclusionsCard } from '../components/ExclusionsCard'
 import { AutoCleanCard } from '../components/AutoCleanCard'
 import { SupportCard } from '../components/SupportCard'
+import { AboutCard } from '../components/AboutCard'
 
 function Row({ title, description, children }: { title: string; description: ReactNode; children: ReactNode }): JSX.Element {
   return (
@@ -63,10 +64,6 @@ function NumberInput({
 
 export function SettingsPage(): JSX.Element {
   const { settings, update } = useSettings()
-  const [version, setVersion] = useState('')
-  useEffect(() => {
-    void call(tidy.appVersion()).then((v) => v && setVersion(v))
-  }, [])
 
   const themes: [Settings['theme'], string, typeof Sun][] = [
     ['system', 'System', Monitor],
@@ -154,7 +151,7 @@ export function SettingsPage(): JSX.Element {
 
       <SupportCard />
 
-      <p className="text-center text-xs text-muted">TidyDesk {version} · MIT License</p>
+      <AboutCard />
     </>
   )
 }

@@ -39,5 +39,8 @@
   "repository": {
     "type": "git",
     "url": "https://github.com/brian-dev-2026/TidyDesk.git"
+  },
+  "dependencies": {
+    "electron-updater": "^6.8.9"
   }
 }

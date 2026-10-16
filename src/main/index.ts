@@ -9,12 +9,14 @@ import { registerIpc } from './ipc'
 import { createTray, iconPath } from './tray'
 import { getLog, installProcessHandlers, Logger, setLog } from './logger'
 import { isAutoCleanDue, runAutoClean } from './autoclean'
+import { startUpdater, type Updater } from './updater'
 import { junkCategories, runningBrowsers, scanJunk } from './junk'
 import { formatBytes } from '@shared/format'
 
 let win: BrowserWindow | null = null
 let tray: Tray | null = null
 let quitting = false
+let updater: Updater | null = null
 
 // lets development and automated checks run against a throwaway data folder
 if (process.env.TIDYDESK_DATA_DIR) app.setPath('userData', process.env.TIDYDESK_DATA_DIR)
@@ -56,7 +58,13 @@ async function start(): Promise<void> {
     isDryRun: async () => (await settings.get()).dryRun
   })
 
-  const { notifyHistoryChanged } = registerIpc({ history, settings, safeBin, getWindow: () => win })
+  const { notifyHistoryChanged, sendUpdateStatus } = registerIpc({
+    history,
+    settings,
+    safeBin,
+    getWindow: () => win,
+    getUpdater: () => updater
+  })
 
   win = new BrowserWindow({
     width: 1100,
@@ -104,6 +112,16 @@ async function start(): Promise<void> {
   else await win.loadFile(join(__dirname, '../renderer/index.html'))
 
   tray = createTray(showWindow, quit)
+
+  updater = startUpdater({
+    isPackaged: app.isPackaged,
+    autoDownload: async () => (await settings.get()).autoDownloadUpdates,
+    send: sendUpdateStatus,
+    beforeInstall: () => {
+      quitting = true
+      getLog().info('Installing update and restarting')
+    }
+  })
 
   startScheduler({
     safeBin,
