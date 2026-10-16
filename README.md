@@ -124,7 +124,7 @@ TidyDesk follows [semantic versioning](https://semver.org), starting at **1.0.0*
 
 ## Releasing
 
-Push a version tag and GitHub Actions builds the installer and attaches it to a GitHub Release, where the auto-updater finds it:
+Push a version tag and GitHub Actions builds the installer and publishes it as a GitHub Release, where the auto-updater finds it:
 
 ```bash
 npm version minor   # or patch / major

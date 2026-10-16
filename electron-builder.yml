@@ -28,3 +28,4 @@ publish:
   provider: github
   owner: brian-dev-2026
   repo: TidyDesk
+  releaseType: release
