@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#6366f1"/>
+      <stop offset="1" stop-color="#8b5cf6"/>
+    </linearGradient>
+  </defs>
+  <rect x="16" y="16" width="480" height="480" rx="112" fill="url(#bg)"/>
+  <!-- broom handle -->
+  <rect x="236" y="70" width="40" height="250" rx="20" fill="#fff" transform="rotate(28 256 256)"/>
+  <!-- broom head -->
+  <path d="M168 300 L312 300 L352 420 Q256 448 128 420 Z" fill="#fff" transform="rotate(28 256 256)"/>
+  <path d="M190 330 L170 410 M230 330 L222 420 M270 330 L278 420 M310 330 L330 410" stroke="#7c5cf2" stroke-width="10" stroke-linecap="round" transform="rotate(28 256 256)"/>
+  <!-- sparkle -->
+  <path d="M120 96 Q128 136 168 144 Q128 152 120 192 Q112 152 72 144 Q112 136 120 96 Z" fill="#fff"/>
+  <path d="M392 330 Q397 352 418 356 Q397 361 392 382 Q387 361 366 356 Q387 352 392 330 Z" fill="#fff" opacity="0.85"/>
+</svg>

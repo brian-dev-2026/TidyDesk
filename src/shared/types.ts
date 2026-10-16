@@ -47,6 +47,10 @@ export interface HistoryEntry {
   count: number
   bytes: number
   skipped: number
+  /** Bytes restored from the Safe Bin so far. */
+  restoredBytes?: number
+  /** Bytes permanently deleted when the batch was purged. */
+  freedBytes?: number
   dryRun?: boolean
   items?: BinItem[]
   moves?: Move[]

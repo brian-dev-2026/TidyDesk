@@ -93,6 +93,7 @@ describe('SafeBin', () => {
     const p = await safeBin.purge(e.id)
     expect(p.status).toBe('purged')
     expect(p.purgedAt).toBe(1_000_000)
+    expect(p.freedBytes).toBe(1)
     expect(p.items![0].state).toBe('purged')
     expect(await exists(path.join(bin, e.id))).toBe(false)
   })
@@ -106,6 +107,7 @@ describe('SafeBin', () => {
     const p = await safeBin.purge(e.id)
     expect(p.items!.map((i) => i.state).sort()).toEqual(['purged', 'restored'])
     expect(await exists(a)).toBe(true)
+    expect(p.freedBytes).toBe(1)
   })
 
   it('purgeExpired purges overdue batches on startup', async () => {
@@ -136,7 +138,8 @@ describe('SafeBin', () => {
     const b = await write(path.join(work, 'b.txt'), '12')
     const e = await safeBin.quarantine([a, b], { type: 'junk', title: 't' })
     expect(await safeBin.heldBytes()).toBe(6)
-    await safeBin.restore(e.id, [a])
+    const r = await safeBin.restore(e.id, [a])
+    expect(r.restoredBytes).toBe(4)
     expect(await safeBin.heldBytes()).toBe(2)
   })
 

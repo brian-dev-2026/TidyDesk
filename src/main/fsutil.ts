@@ -53,6 +53,9 @@ export async function uniquePath(p: string, suffix?: string, taken?: Set<string>
   }
 }
 
+const STAT_BATCH = 64
+const DIR_CONCURRENCY = 16
+
 export interface WalkOptions {
   skipHidden?: boolean
   signal?: AbortSignal
@@ -63,33 +66,80 @@ export interface WalkOptions {
  * and silently skips entries it cannot read.
  */
 export async function* walkFiles(dir: string, opts: WalkOptions = {}): AsyncGenerator<FileInfo> {
-  const stack = [dir]
-  while (stack.length) {
-    if (opts.signal?.aborted) throw new Error('Cancelled')
-    const current = stack.pop()!
+  // Several folders are read concurrently: trees like %TEMP% can hold 100k+ folders, and
+  // reading them one at a time is the bottleneck.
+  const pending = [dir]
+  const ready: FileInfo[] = []
+  let active = 0
+  let wake: (() => void) | null = null
+  const notify = (): void => {
+    wake?.()
+    wake = null
+  }
+
+  async function visit(current: string): Promise<void> {
     let entries
     try {
       entries = await fs.readdir(current, { withFileTypes: true })
     } catch {
-      continue
+      return
     }
+    const files: string[] = []
     for (const e of entries) {
       if (e.isSymbolicLink()) continue
       if (e.name.toLowerCase() === BIN_DIR_NAME) continue
       if (opts.skipHidden && e.name.startsWith('.')) continue
       const p = path.join(current, e.name)
-      if (e.isDirectory()) {
-        stack.push(p)
-      } else if (e.isFile()) {
-        try {
-          const st = await fs.lstat(p)
-          yield { path: p, size: st.size, mtimeMs: st.mtimeMs }
-        } catch {
-          // vanished or unreadable — skip
-        }
-      }
+      if (e.isDirectory()) pending.push(p)
+      else if (e.isFile()) files.push(p)
+    }
+    for (let i = 0; i < files.length; i += STAT_BATCH) {
+      const batch = await Promise.all(
+        files.slice(i, i + STAT_BATCH).map((p) =>
+          fs.lstat(p).then(
+            (st) => ({ path: p, size: st.size, mtimeMs: st.mtimeMs }),
+            () => null // vanished or unreadable — skip
+          )
+        )
+      )
+      for (const f of batch) if (f) ready.push(f)
     }
   }
+
+  const pump = (): void => {
+    while (active < DIR_CONCURRENCY && pending.length && ready.length < 10000) {
+      active++
+      visit(pending.pop()!).finally(() => {
+        active--
+        notify()
+      })
+    }
+  }
+
+  while (true) {
+    if (opts.signal?.aborted) throw new Error('Cancelled')
+    pump()
+    if (ready.length) {
+      yield* ready.splice(0, ready.length)
+      continue
+    }
+    if (!active && !pending.length) return
+    await new Promise<void>((r) => (wake = r))
+  }
+}
+
+/** Runs fn over items with at most `limit` in flight; results keep the input order. */
+export async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T, index: number) => Promise<R>): Promise<R[]> {
+  const out = new Array<R>(items.length)
+  let next = 0
+  const worker = async (): Promise<void> => {
+    while (next < items.length) {
+      const i = next++
+      out[i] = await fn(items[i], i)
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker))
+  return out
 }
 
 export async function dirSize(dir: string): Promise<number> {

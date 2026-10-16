@@ -99,7 +99,8 @@ async function expand(root: string): Promise<string[]> {
 export interface ScanOptions {
   now?: number
   running?: Set<string>
-  onProgress?: (done: number, total: number) => void
+  /** done/total categories, plus the number of files looked at so far. */
+  onProgress?: (done: number, total: number, filesSeen: number) => void
 }
 
 export async function scanJunk(
@@ -111,6 +112,7 @@ export async function scanJunk(
   const categories: JunkCategory[] = []
   const files: Record<string, string[]> = {}
   let done = 0
+  let seen = 0
   for (const def of defs) {
     const list: string[] = []
     let bytes = 0
@@ -123,6 +125,7 @@ export async function scanJunk(
       for (const dir of await expand(root.path)) {
         // the filtered categories (thumbnails) only look at the folder's own files
         for await (const f of walkFiles(dir)) {
+          if (++seen % 2000 === 0) opts.onProgress?.(done, defs.length, seen)
           if (def.filePattern && (path.dirname(f.path) !== dir || !def.filePattern.test(path.basename(f.path)))) continue
           if (f.mtimeMs > now - RECENT_MS) continue
           list.push(f.path)
@@ -140,7 +143,7 @@ export async function scanJunk(
     if (blocked.size) cat.note = `Close ${[...blocked].join(', ')} to clean ${blocked.size > 1 ? 'their caches' : 'its cache'}`
     categories.push(cat)
     files[def.id] = list
-    opts.onProgress?.(++done, defs.length)
+    opts.onProgress?.(++done, defs.length, seen)
   }
   return { categories, files }
 }
