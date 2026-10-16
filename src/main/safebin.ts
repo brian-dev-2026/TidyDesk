@@ -24,6 +24,8 @@ const HOUR = 3600000
 // Benchmarked on Windows: concurrent renames are ~8x slower than sequential ones (filter-driver
 // contention), so file moves run one at a time.
 const CONCURRENCY = 1
+// a dry run only stats files, which parallelises well
+const STAT_CONCURRENCY = 32
 
 function defaultBinRoot(file: string): string {
   return path.join(path.parse(file).root, BIN_DIR_NAME)
@@ -113,7 +115,7 @@ export class SafeBin {
     const id = this.history.newId()
     const createdAt = this.now()
     let done = 0
-    const items = await mapLimit(files, CONCURRENCY, async (originalPath, i): Promise<BinItem> => {
+    const items = await mapLimit(files, meta.dryRun ? STAT_CONCURRENCY : CONCURRENCY, async (originalPath, i): Promise<BinItem> => {
       try {
         const st = await fs.lstat(originalPath)
         if (meta.dryRun) return { originalPath, binPath: '', size: st.size, state: 'would-remove' }

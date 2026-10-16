@@ -70,6 +70,10 @@ async function start(): Promise<void> {
     void settings.get().then((s) => (s.closeToTray ? win?.hide() : quit()))
   })
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
+  win.webContents.on('render-process-gone', (_e, details) => {
+    console.error('Renderer process gone', details)
+  })
+  win.on('closed', () => console.error('Window closed'))
 
   if (process.env.ELECTRON_RENDERER_URL) await win.loadURL(process.env.ELECTRON_RENDERER_URL)
   else await win.loadFile(join(__dirname, '../renderer/index.html'))
