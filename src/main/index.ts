@@ -1,4 +1,4 @@
-import { app, BrowserWindow, nativeImage, Tray } from 'electron'
+import { app, BrowserWindow, Menu, nativeImage, Tray } from 'electron'
 import { join } from 'path'
 import { HistoryStore } from './history'
 import { SettingsStore } from './settings'
@@ -36,6 +36,9 @@ function quit(): void {
 
 async function start(): Promise<void> {
   app.setAppUserModelId('com.tidydesk.app')
+  // Electron's default menu stays active (though hidden) in a frameless window, and its shortcuts
+  // let a stray Ctrl+R reload the page mid-task or Ctrl+W close the window. TidyDesk has no menu.
+  Menu.setApplicationMenu(null)
   const dataDir = app.getPath('userData')
   const history = new HistoryStore(dataDir)
   const settings = new SettingsStore(dataDir)
@@ -74,6 +77,15 @@ async function start(): Promise<void> {
     void settings.get().then((s) => (s.closeToTray ? win?.hide() : quit()))
   })
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
+  if (!app.isPackaged) {
+    // keep DevTools reachable while developing, now that the default menu is gone
+    win.webContents.on('before-input-event', (e, input) => {
+      if (input.type === 'keyDown' && input.control && input.shift && input.key.toLowerCase() === 'i') {
+        win?.webContents.toggleDevTools()
+        e.preventDefault()
+      }
+    })
+  }
   // dropping a file on the window would otherwise navigate to it with the preload attached
   win.webContents.on('will-navigate', (e) => e.preventDefault())
   win.webContents.on('render-process-gone', (_e, details) => {
