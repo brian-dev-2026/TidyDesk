@@ -1,5 +1,7 @@
 import { app, BrowserWindow, dialog, ipcMain, nativeImage, shell } from 'electron'
 import fs from 'fs/promises'
+import { createWriteStream } from 'fs'
+import { once } from 'events'
 import path from 'path'
 import type { HistoryEntry, Progress, Result, Settings, Stats } from '@shared/types'
 import type { HistoryStore } from './history'
@@ -13,6 +15,7 @@ import { applyOrganize, planOrganize, undoOrganize } from './organizer'
 import { findDuplicates, validateDupRemoval } from './duplicates'
 import { getLog } from './logger'
 import { findLargeFiles } from './largefiles'
+import { CSV_HEADER, csvLine, historyToCsvRows } from './csv'
 import { findEmptyFolders, removeEmptyFolders, restoreEmptyFolders } from './emptyfolders'
 import type { DupGroup } from '@shared/types'
 
@@ -333,6 +336,33 @@ export function registerIpc(deps: IpcDeps): { notifyHistoryChanged: () => void }
   })
 
   handle('appVersion', () => app.getVersion())
+
+  handle('openLogs', async () => {
+    const dir = path.join(app.getPath('userData'), 'logs')
+    await fs.mkdir(dir, { recursive: true })
+    const err = await shell.openPath(dir)
+    if (err) throw new Error(err)
+  })
+
+  handle('exportCsv', async (): Promise<string | null> => {
+    const w = deps.getWindow()
+    const name = `tidydesk-activity-${new Date().toISOString().slice(0, 10)}.csv`
+    const opts = { defaultPath: path.join(app.getPath('documents'), name), filters: [{ name: 'CSV', extensions: ['csv'] }] }
+    const r = w ? await dialog.showSaveDialog(w, opts) : await dialog.showSaveDialog(opts)
+    if (r.canceled || !r.filePath) return null
+    const out = createWriteStream(r.filePath, { encoding: 'utf8' })
+    const write = async (s: string): Promise<void> => {
+      if (!out.write(s)) await once(out, 'drain')
+    }
+    await write('﻿' + csvLine(CSV_HEADER)) // BOM so Excel reads UTF-8 paths correctly
+    for (const e of await history.list()) {
+      const full = await history.get(e.id).catch(() => e) // an unreadable item list still exports its summary row
+      for (const row of historyToCsvRows(full ?? e)) await write(csvLine(row))
+    }
+    out.end()
+    await once(out, 'finish')
+    return r.filePath
+  })
 
   handle('logRenderer', (message: string) => {
     getLog().error(`[renderer] ${String(message).slice(0, 4000)}`)

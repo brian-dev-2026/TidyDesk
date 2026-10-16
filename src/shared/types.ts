@@ -160,6 +160,8 @@ export interface TidyApi {
   showInFolder(path: string): R<void>
   appVersion(): R<string>
   logRenderer(message: string): R<void>
+  openLogs(): R<void>
+  exportCsv(): R<string | null>
   onProgress(cb: (p: Progress) => void): () => void
   onHistoryChanged(cb: () => void): () => void
   win: { minimize(): void; maximize(): void; close(): void }

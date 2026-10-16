@@ -5,6 +5,7 @@ import { call, tidy, useSettings } from '../api'
 import { Card, cx, PageHeader, Toggle } from '../components/ui'
 import { ExclusionsCard } from '../components/ExclusionsCard'
 import { AutoCleanCard } from '../components/AutoCleanCard'
+import { SupportCard } from '../components/SupportCard'
 
 function Row({ title, description, children }: { title: string; description: ReactNode; children: ReactNode }): JSX.Element {
   return (
@@ -150,6 +151,8 @@ export function SettingsPage(): JSX.Element {
           </Row>
         </div>
       </Card>
+
+      <SupportCard />
 
       <p className="text-center text-xs text-muted">TidyDesk {version} · MIT License</p>
     </>

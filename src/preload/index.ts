@@ -39,7 +39,9 @@ const channels = [
   'thumbnail',
   'showInFolder',
   'appVersion',
-  'logRenderer'
+  'logRenderer',
+  'openLogs',
+  'exportCsv'
 ] as const
 
 const api = {
