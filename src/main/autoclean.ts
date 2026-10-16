@@ -31,12 +31,15 @@ export async function runAutoClean(deps: AutoCleanDeps): Promise<HistoryEntry | 
   // recorded even when nothing was found, so the next attempt waits a full interval
   await deps.settings.set({ lastAutoClean: now() })
   if (!files.length) return null
+  // the scan can take a while: use the settings as they are now, not as they were when it started
+  const cur = await deps.settings.get()
   const entry = await deps.safeBin.quarantine(files, {
     type: 'junk',
     title: 'Automatic junk clean',
-    exclusions: s.exclusions,
+    exclusions: cur.exclusions,
+    dryRun: cur.dryRun,
     skipNewerThan: Date.now() - HOUR
   })
-  if (entry.count > 0) deps.notify(entry.bytes, s.holdHours)
+  if (entry.count > 0 && !entry.dryRun) deps.notify(entry.bytes, cur.holdHours)
   return entry
 }

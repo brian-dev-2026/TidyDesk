@@ -198,7 +198,8 @@ export function registerIpc(deps: IpcDeps): { notifyHistoryChanged: () => void; 
       dryRun: s.dryRun,
       exclusions: s.exclusions,
       mode: s.organizeMode,
-      categories: s.organizerCategories
+      categories: s.organizerCategories,
+      minAgeMs: 10000
     })
     if (r.entries.length) notifyHistoryChanged()
     return { entries: r.entries.map(strip), errors: r.errors }

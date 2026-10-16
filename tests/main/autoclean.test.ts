@@ -81,4 +81,38 @@ describe('runAutoClean', () => {
     expect(await exists(fresh)).toBe(true)
     expect(await exists(kept)).toBe(true)
   })
+
+  it('re-reads settings after the scan: dry run or a new exclusion set meanwhile is honoured', async () => {
+    const { root, settings, safeBin } = await setup()
+    const a = await write(path.join(root, 'temp', 'a.tmp'))
+    const b = await write(path.join(root, 'temp', 'later-excluded', 'b.tmp'))
+    const past = new Date(Date.now() - 3 * H)
+    for (const f of [a, b]) await fs.utimes(f, past, past)
+    const e = await runAutoClean({
+      settings,
+      safeBin,
+      scan: async () => {
+        await settings.set({ exclusions: [path.join(root, 'temp', 'later-excluded')] })
+        return [a, b]
+      },
+      notify: () => {}
+    })
+    expect(e!.count).toBe(1)
+    expect(await exists(a)).toBe(false)
+    expect(await exists(b)).toBe(true)
+
+    const c = await write(path.join(root, 'temp', 'c.tmp'))
+    await fs.utimes(c, past, past)
+    const dry = await runAutoClean({
+      settings,
+      safeBin,
+      scan: async () => {
+        await settings.set({ dryRun: true })
+        return [c]
+      },
+      notify: () => {}
+    })
+    expect(dry!.dryRun).toBe(true)
+    expect(await exists(c)).toBe(true)
+  })
 })

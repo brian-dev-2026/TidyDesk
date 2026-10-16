@@ -24,6 +24,8 @@ const OTHER = 'Other'
 const HIDDEN_NAMES = new Set(['desktop.ini', 'thumbs.db'])
 /** Shortcuts stay put: on a desktop they are how people open their apps. */
 const SHORTCUT_EXT = new Set(['.lnk', '.url', '.website'])
+/** Files a browser or downloader is still writing. */
+const IN_PROGRESS_EXT = new Set(['.crdownload', '.part', '.partial', '.download', '.opdownload'])
 const RESERVED_WIN = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/i
 
 function extensionMap(categories: Record<string, string[]>): Map<string, string> {
@@ -49,7 +51,8 @@ export function validateCategories(input: unknown): Record<string, string[]> {
   const owner = new Map<string, string>()
   for (const [rawName, rawExts] of Object.entries(input as Record<string, unknown>)) {
     const name = rawName.trim()
-    if (!name || /[<>:"/\\|?*\x00-\x1f]/.test(name) || /[. ]$/.test(name) || RESERVED_WIN.test(name)) {
+    if (name.length > 100) throw new Error(`"${name.slice(0, 20)}…" is too long for a folder name`)
+    if (name === '__proto__' || !name || /[<>:"/\\|?*\x00-\x1f]/.test(name) || /[. ]$/.test(name) || RESERVED_WIN.test(name)) {
       throw new Error(`"${rawName}" is not a valid folder name`)
     }
     if (name.toLowerCase() === OTHER.toLowerCase()) throw new Error('"Other" is reserved for files no category matches')
@@ -59,7 +62,10 @@ export function validateCategories(input: unknown): Record<string, string[]> {
     const exts: string[] = []
     for (const raw of rawExts) {
       const ext = String(raw).trim().replace(/^\.+/, '').toLowerCase()
-      if (!ext || /[\\/:*?"<>|\s]/.test(ext)) throw new Error(`"${name}" has an empty extension`)
+      if (!ext) throw new Error(`"${name}" has an empty extension`)
+      // a file's extension is only what follows its last dot, so "tar.gz" could never match
+      if (ext.includes('.')) throw new Error(`".${ext}" cannot contain a dot — use the last part, like ".${ext.split('.').pop()}"`)
+      if (/[\\/:*?"<>|\s]/.test(ext)) throw new Error(`"${name}" has an invalid extension ".${ext}"`)
       const prev = owner.get(ext)
       if (prev && prev !== name) throw new Error(`".${ext}" is in two categories: ${prev} and ${name}`)
       owner.set(ext, name)
@@ -114,6 +120,8 @@ export interface PlanOptions {
   /** 'type' sorts into category folders; 'date' into YYYY\\YYYY-MM by modified time. */
   mode?: 'type' | 'date'
   categories?: Record<string, string[]>
+  /** Leave files changed less than this many ms ago alone (they may still be in use). */
+  minAgeMs?: number
 }
 
 /** Plans moving every top-level, non-hidden file of dir into subfolders. Touches nothing on disk. */
@@ -133,10 +141,11 @@ export async function planOrganize(dir: string, opts: PlanOptions = {}): Promise
     if (!e.isFile()) continue
     const lower = e.name.toLowerCase()
     if (e.name.startsWith('.') || HIDDEN_NAMES.has(lower) || hidden.has(lower)) continue
-    if (SHORTCUT_EXT.has(path.extname(lower))) continue
+    if (SHORTCUT_EXT.has(path.extname(lower)) || IN_PROGRESS_EXT.has(path.extname(lower))) continue
     if (opts.mode !== 'date' && folderNames.has(lower)) continue
     const from = path.join(dir, e.name)
     if (isExcluded(from, exclusions)) continue
+    if (opts.minAgeMs && Date.now() - (await fs.stat(from)).mtimeMs < opts.minAgeMs) continue
     let category: string
     let folderKey: string
     if (opts.mode === 'date') {
@@ -192,6 +201,8 @@ export async function applyOrganize(
         for (const d of newDirs) if (!createdDirs.includes(d)) createdDirs.push(d)
       } catch {
         skipped++
+        // the move may have created its folders before failing; remove them again (only if empty)
+        for (const d of newDirs) await fs.rmdir(d).catch(() => {})
       }
     }
   }

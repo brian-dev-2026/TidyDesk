@@ -225,6 +225,10 @@ describe('organizer', () => {
     [{ A: ['x'], a: ['y'] }, 'used twice'],
     [{ A: [''] }, 'empty extension'],
     [{}, 'at least one category'],
+    [{ Archives: ['tar.gz'] }, 'cannot contain a dot'],
+    [{ A: ['a b'] }, 'invalid extension'],
+    [JSON.parse('{"__proto__": ["x"]}'), 'not a valid folder name'],
+    [{ ['x'.repeat(101)]: ['y'] }, 'too long'],
     ['nope', 'at least one category']
   ])('validateCategories rejects %j', (input, message) => {
     expect(() => validateCategories(input)).toThrow(message)
@@ -268,5 +272,37 @@ describe('autoOrganize', () => {
     const r = await autoOrganize([dir], history, { dryRun: true })
     expect(r.entries[0].dryRun).toBe(true)
     expect(await exists(path.join(dir, 'a.pdf'))).toBe(true)
+  })
+})
+
+describe('organizer edge cases', () => {
+  it('a move that fails leaves no empty category folder behind', async () => {
+    const { dir, history } = await setup()
+    await write(path.join(dir, 'a.pdf'))
+    await write(path.join(dir, 'b.png'))
+    const plan = await planOrganize(dir)
+    await fs.rm(path.join(dir, 'a.pdf'))
+    const e = await applyOrganize(dir, plan, history)
+    expect(e.count).toBe(1)
+    expect(e.skipped).toBe(1)
+    expect(await exists(path.join(dir, 'Documents'))).toBe(false)
+    await undoOrganize(e.id, history)
+    expect(await exists(path.join(dir, 'Images'))).toBe(false)
+    expect(await exists(path.join(dir, 'b.png'))).toBe(true)
+  })
+
+  it('downloads still in progress are left alone', async () => {
+    const { dir } = await setup()
+    for (const f of ['movie.mp4.crdownload', 'x.zip.part', 'y.iso.partial', 'z.pdf.download', 'done.pdf']) await write(path.join(dir, f))
+    expect((await planOrganize(dir)).map((m) => path.basename(m.from))).toEqual(['done.pdf'])
+  })
+
+  it('with minAgeMs, files changed very recently are left alone', async () => {
+    const { dir } = await setup()
+    await write(path.join(dir, 'fresh.pdf'))
+    const old = await write(path.join(dir, 'old.pdf'))
+    const past = new Date(Date.now() - 5 * 60000)
+    await fs.utimes(old, past, past)
+    expect((await planOrganize(dir, { minAgeMs: 60000 })).map((m) => path.basename(m.from))).toEqual(['old.pdf'])
   })
 })
