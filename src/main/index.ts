@@ -51,7 +51,7 @@ async function start(): Promise<void> {
   Menu.setApplicationMenu(null)
   const dataDir = app.getPath('userData')
   const history = new HistoryStore(dataDir)
-  const settings = new SettingsStore(dataDir)
+  const settings = new SettingsStore(dataDir, { allowDryRun: !app.isPackaged })
   const safeBin = new SafeBin({
     history,
     holdHours: async () => (await settings.get()).holdHours,

@@ -34,9 +34,6 @@ Everything TidyDesk removes waits in a restorable **Safe Bin** first, and every 
 - **Dashboard**: shows disk usage, space held in the Safe Bin, space freed all-time, and a timeline of every action.
   - Open any entry to see each file it touched.
   - Restore single files or whole batches, undo organize runs, or delete permanently.
-- **Dry run mode**: a single switch that simulates everything.
-  - Scans and plans run for real, but nothing on disk is moved or deleted.
-  - Results are logged on the Dashboard, so you can see exactly what *would* happen.
 - **Activity export and logs**: export the full history as CSV, or open the error log from Settings.
 - **Automatic updates**: new versions download in the background and install when you restart.
 - **Modern UI**: dark and light themes (or follow Windows), keyboard-friendly, and a tray icon.
@@ -68,13 +65,6 @@ TidyDesk also **permanently deletes anything that has been in the Windows Recycl
 
 - You get a notice the first time you run TidyDesk.
 - Turn it off any time in **Settings → Windows Recycle Bin auto-sweep**.
-
-### Dry run
-
-Turn on **Dry run** in the sidebar to test everything safely.
-
-- While it is on, TidyDesk never moves, renames or deletes a file. Restore, Undo and Delete now are disabled too.
-- The Safe Bin timer and the Recycle Bin sweep are paused.
 
 ## Install
 
@@ -108,6 +98,8 @@ npm run dist       # build dist/TidyDesk-Setup-<version>.exe
 ```
 
 Set `TIDYDESK_DATA_DIR` to run against a throwaway history and settings folder while developing.
+
+`npm run dev` also shows a **Dry run** switch that simulates every action without touching files. It is a development tool and is not part of the installed app.
 
 Behind a corporate proxy, the Electron download needs `ELECTRON_GET_USE_PROXY=1` and `GLOBAL_AGENT_HTTPS_PROXY=<your proxy>`.
 

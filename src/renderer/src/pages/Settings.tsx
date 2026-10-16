@@ -99,12 +99,14 @@ export function SettingsPage(): JSX.Element {
 
       <Card title="Safety" className="mb-5">
         <div className="divide-y divide-line">
-          <Row
-            title="Dry run"
-            description="Simulate every action. Nothing is moved or deleted; results are logged on the Dashboard."
-          >
-            <Toggle label="Dry run" checked={settings.dryRun} onChange={(v) => void update({ dryRun: v })} />
-          </Row>
+          {import.meta.env.DEV && (
+            <Row
+              title="Dry run (development only)"
+              description="Simulate every action. Nothing is moved or deleted; results are logged on the Dashboard."
+            >
+              <Toggle label="Dry run" checked={settings.dryRun} onChange={(v) => void update({ dryRun: v })} />
+            </Row>
+          )}
           <Row
             title="Hold time"
             description="How long cleaned and removed files stay restorable in the Safe Bin before they are deleted permanently."

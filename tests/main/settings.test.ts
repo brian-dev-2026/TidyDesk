@@ -111,3 +111,19 @@ describe('SettingsStore', () => {
     expect((await new SettingsStore(d).get()).organizerCategories).toBeUndefined()
   })
 })
+
+describe('SettingsStore without dry run (production)', () => {
+  it('always reports dryRun false, even if it was stored as true', async () => {
+    const d = await tmpDir()
+    await fs.writeFile(path.join(d, 'settings.json'), JSON.stringify({ dryRun: true }))
+    const s = new SettingsStore(d, { allowDryRun: false })
+    expect((await s.get()).dryRun).toBe(false)
+    expect((await s.set({ dryRun: true })).dryRun).toBe(false)
+    expect((await s.get()).dryRun).toBe(false)
+  })
+
+  it('dev builds keep the dry run switch', async () => {
+    const s = new SettingsStore(await tmpDir())
+    expect((await s.set({ dryRun: true })).dryRun).toBe(true)
+  })
+})

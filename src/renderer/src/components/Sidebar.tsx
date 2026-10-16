@@ -50,18 +50,21 @@ export function Sidebar({ page, onNavigate }: { page: Page; onNavigate: (p: Page
         })}
       </nav>
 
-      <div className="mt-auto rounded-xl border border-line bg-raised/60 p-3">
-        <div className="flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2 text-sm font-medium">
-            <FlaskConical className={cx('h-4 w-4', settings.dryRun ? 'text-amber-500' : 'text-muted')} />
-            Dry run
+      {/* dry run is a development tool; the installed app always works for real */}
+      {import.meta.env.DEV && (
+        <div className="mt-auto rounded-xl border border-line bg-raised/60 p-3">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2 text-sm font-medium">
+              <FlaskConical className={cx('h-4 w-4', settings.dryRun ? 'text-amber-500' : 'text-muted')} />
+              Dry run
+            </div>
+            <Toggle label="Dry run" checked={settings.dryRun} onChange={(v) => void update({ dryRun: v })} />
           </div>
-          <Toggle label="Dry run" checked={settings.dryRun} onChange={(v) => void update({ dryRun: v })} />
+          <p className="mt-1.5 text-[11px] leading-snug text-muted">
+            {settings.dryRun ? 'Simulating — nothing on disk will change.' : 'Off — actions really move files.'}
+          </p>
         </div>
-        <p className="mt-1.5 text-[11px] leading-snug text-muted">
-          {settings.dryRun ? 'Simulating — nothing on disk will change.' : 'Off — actions really move files.'}
-        </p>
-      </div>
+      )}
     </aside>
   )
 }

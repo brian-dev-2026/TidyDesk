@@ -61,7 +61,15 @@ export function sanitizeSettings(raw: unknown): Settings {
 export class SettingsStore {
   private cache: Settings | null = null
 
-  constructor(private dir: string) {}
+  /** allowDryRun is false in the installed app: dry run is a development tool only. */
+  constructor(
+    private dir: string,
+    private opts: { allowDryRun?: boolean } = {}
+  ) {}
+
+  private finish(s: Settings): Settings {
+    return this.opts.allowDryRun === false ? { ...s, dryRun: false } : s
+  }
 
   private get file(): string {
     return path.join(this.dir, 'settings.json')
@@ -75,7 +83,7 @@ export class SettingsStore {
     } catch {
       // missing or corrupt — defaults
     }
-    this.cache = sanitizeSettings(stored)
+    this.cache = this.finish(sanitizeSettings(stored))
     return { ...this.cache }
   }
 
@@ -85,7 +93,7 @@ export class SettingsStore {
     const merged: Record<string, unknown> = { ...(await this.get()), ...p }
     // null resets these to their defaults
     for (const k of ['organizerCategories', 'organizeFolders', 'duplicateFolders'] as const) if (p[k] === null) delete merged[k]
-    const next = sanitizeSettings(merged)
+    const next = this.finish(sanitizeSettings(merged))
     await fs.mkdir(this.dir, { recursive: true })
     const tmp = this.file + '.tmp'
     await fs.writeFile(tmp, JSON.stringify(next, null, 2))
