@@ -106,4 +106,30 @@ describe('scheduler', () => {
     await sched.tick()
     expect(calls).toEqual(['purge'])
   })
+
+  it('runs auto-clean after purge and before sweep, but not in dry run or before the notice', async () => {
+    for (const [extra, expected] of [
+      [{}, ['purge', 'auto', 'sweep:5']],
+      [{ dryRun: true }, []],
+      [{ firstRunNoticeSeen: false }, []]
+    ] as const) {
+      const calls: string[] = []
+      const history = new HistoryStore(path.join(await tmpDir(), 'data'))
+      const sched = startScheduler({
+        safeBin: { purgeExpired: async () => (calls.push('purge'), 0) },
+        settings: { get: async () => ({ ...DEFAULT_SETTINGS, firstRunNoticeSeen: true, ...extra }) },
+        sweep: async (h) => (calls.push(`sweep:${h}`), { count: 0, bytes: 0 }),
+        autoClean: async () => {
+          calls.push('auto')
+        },
+        history,
+        onChange: () => {},
+        intervalMs: 10_000_000,
+        runImmediately: false
+      })
+      sched.stop()
+      await sched.tick()
+      expect(calls).toEqual(expected)
+    }
+  })
 })

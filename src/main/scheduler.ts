@@ -6,6 +6,8 @@ export interface SchedulerDeps {
   safeBin: { purgeExpired(): Promise<number> }
   settings: { get(): Promise<Settings> }
   sweep: (hours: number) => Promise<RecycleInfo>
+  /** Runs a scheduled junk clean when one is due (it decides itself). */
+  autoClean?: () => Promise<void>
   history: HistoryStore
   onChange: () => void
   intervalMs?: number
@@ -28,6 +30,13 @@ export function startScheduler(deps: SchedulerDeps): { stop(): void; tick(): Pro
         changed = (await deps.safeBin.purgeExpired()) > 0
       } catch (e) {
         getLog().error('Safe Bin purge failed', e)
+      }
+      if (deps.autoClean && !(await deps.settings.get()).dryRun) {
+        try {
+          await deps.autoClean()
+        } catch (e) {
+          getLog().error('Automatic junk clean failed', e)
+        }
       }
       // the purge can take a while; respect dry run if it was switched on meanwhile
       if (s.sweepWindowsRecycleBin && !(await deps.settings.get()).dryRun) {

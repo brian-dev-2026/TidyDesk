@@ -3,7 +3,7 @@ import path from 'path'
 import { execFile } from 'child_process'
 import type { JunkCategory } from '@shared/types'
 import { walkFiles } from './fsutil'
-import { excluder } from './exclusions'
+import { excluder, isExcluded } from './exclusions'
 
 export interface JunkRoot {
   /** May contain a single "*" segment, expanded to every subfolder (browser profiles). */
@@ -125,7 +125,7 @@ export async function scanJunk(
         continue
       }
       for (const dir of await expand(root.path)) {
-        if (opts.exclusions && excluder(opts.exclusions)!(dir)) continue
+        if (opts.exclusions && isExcluded(dir, opts.exclusions)) continue
         // the filtered categories (thumbnails) only look at the folder's own files
         for await (const f of walkFiles(dir, { exclude: excluder(opts.exclusions) })) {
           if (++seen % 2000 === 0) opts.onProgress?.(done, defs.length, seen)

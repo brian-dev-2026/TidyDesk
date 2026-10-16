@@ -109,4 +109,11 @@ describe('junk', () => {
     })
     expect(files['user-temp'].map((f) => path.basename(f))).toEqual(['x.tmp'])
   })
+
+  it('scanJunk works with an empty exclusions list (what the app always passes)', async () => {
+    const { env } = await fakeEnv()
+    await old(path.join(env.TEMP, 'x.tmp'))
+    const { files } = await scanJunk(junkCategories(env), { now: NOW, running: new Set(), exclusions: [] })
+    expect(files['user-temp']).toHaveLength(1)
+  })
 })

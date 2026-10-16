@@ -4,6 +4,7 @@ import type { Settings } from '@shared/types'
 import { call, tidy, useSettings } from '../api'
 import { Card, cx, PageHeader, Toggle } from '../components/ui'
 import { ExclusionsCard } from '../components/ExclusionsCard'
+import { AutoCleanCard } from '../components/AutoCleanCard'
 
 function Row({ title, description, children }: { title: string; description: ReactNode; children: ReactNode }): JSX.Element {
   return (
@@ -126,6 +127,8 @@ export function SettingsPage(): JSX.Element {
       </Card>
 
       <ExclusionsCard />
+
+      <AutoCleanCard />
 
       <Card title="Scanning & startup" className="mb-5">
         <div className="divide-y divide-line">

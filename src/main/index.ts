@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Menu, nativeImage, Tray } from 'electron'
+import { app, BrowserWindow, Menu, nativeImage, Notification, Tray } from 'electron'
 import { join } from 'path'
 import { HistoryStore } from './history'
 import { SettingsStore } from './settings'
@@ -8,6 +8,9 @@ import { sweepRecycleBin } from './recyclebin'
 import { registerIpc } from './ipc'
 import { createTray, iconPath } from './tray'
 import { getLog, installProcessHandlers, Logger, setLog } from './logger'
+import { isAutoCleanDue, runAutoClean } from './autoclean'
+import { junkCategories, runningBrowsers, scanJunk } from './junk'
+import { formatBytes } from '@shared/format'
 
 let win: BrowserWindow | null = null
 let tray: Tray | null = null
@@ -106,6 +109,32 @@ async function start(): Promise<void> {
     safeBin,
     settings,
     sweep: (h) => sweepRecycleBin(h),
+    autoClean: async () => {
+      if (!isAutoCleanDue(await settings.get(), Date.now())) return
+      const entry = await runAutoClean({
+        settings,
+        safeBin,
+        scan: async (ids, exclusions) => {
+          const defs = junkCategories(process.env).filter((d) => ids.includes(d.id))
+          const { files } = await scanJunk(defs, { running: await runningBrowsers(), exclusions })
+          return Object.values(files).flat()
+        },
+        notify: (bytes, holdHours) => {
+          if (!Notification.isSupported()) return
+          const n = new Notification({
+            title: 'TidyDesk cleaned up',
+            body: `${formatBytes(bytes)} of junk moved to the Safe Bin — restorable for ${holdHours} h.`,
+            icon: iconPath()
+          })
+          n.on('click', () => showWindow())
+          n.show()
+        }
+      })
+      if (entry) {
+        getLog().info(`Automatic junk clean: ${entry.count} files, ${entry.bytes} bytes`)
+        notifyHistoryChanged()
+      }
+    },
     history,
     onChange: notifyHistoryChanged
   })
