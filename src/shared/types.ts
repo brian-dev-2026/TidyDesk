@@ -141,6 +141,9 @@ export interface TidyApi {
   emptyRecycleBin(): R<RecycleInfo>
   pickFolder(): R<string | null>
   pickFile(): R<string | null>
+  isFolder(p: string): R<boolean>
+  /** Local path of a file or folder dropped onto the window. */
+  pathForFile(file: File): string
   organizePlan(dir: string): R<Move[]>
   organizeApply(dir: string, moves: Move[]): R<HistoryEntry>
   organizeUndo(id: string): R<HistoryEntry>

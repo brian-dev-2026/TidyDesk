@@ -6,6 +6,7 @@ import { call, tidy, useSettings } from '../api'
 import { useProgress } from '../store'
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import { SafeBinResult } from '../components/SafeBinResult'
+import { DropZone } from '../components/DropZone'
 import { Button, Card, Checkbox, Empty, PageHeader, ProgressBar } from '../components/ui'
 
 function split(p: string): { name: string; folder: string } {
@@ -71,7 +72,7 @@ export function LargeFilesPage(): JSX.Element {
     })
 
   return (
-    <>
+    <DropZone onFolder={(d) => void scan(d)}>
       <PageHeader
         title="Large Files"
         subtitle="The biggest files (over 50 MB) on a drive or in a folder. Pick what you no longer need — it goes to the Safe Bin first."
@@ -195,6 +196,6 @@ export function LargeFilesPage(): JSX.Element {
         onCancel={() => setConfirm(false)}
         onConfirm={() => void remove()}
       />
-    </>
+    </DropZone>
   )
 }

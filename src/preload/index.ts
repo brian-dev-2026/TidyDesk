@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from 'electron'
+import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import type { Progress, TidyApi } from '../shared/types'
 
 const invoke =
@@ -14,6 +14,7 @@ const channels = [
   'emptyRecycleBin',
   'pickFolder',
   'pickFile',
+  'isFolder',
   'organizePlan',
   'organizeApply',
   'organizeUndo',
@@ -54,6 +55,9 @@ const api = {
     const listener = (_e: unknown, p: Progress): void => cb(p)
     ipcRenderer.on('progress', listener)
     return () => ipcRenderer.removeListener('progress', listener)
+  },
+  pathForFile(file: File): string {
+    return webUtils.getPathForFile(file)
   },
   onUpdateStatus(cb: (s: unknown) => void) {
     const listener = (_e: unknown, s: unknown): void => cb(s)

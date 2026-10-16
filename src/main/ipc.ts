@@ -143,6 +143,8 @@ export function registerIpc(deps: IpcDeps): { notifyHistoryChanged: () => void; 
     return r.canceled ? null : r.filePaths[0] ?? null
   })
 
+  handle('isFolder', async (p: string) => (await fs.lstat(p).catch(() => null))?.isDirectory() ?? false)
+
   handle('pickFile', async () => {
     const w = deps.getWindow()
     const opts = { properties: ['openFile' as const] }

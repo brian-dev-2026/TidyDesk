@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { CheckCircle2, FlaskConical, FolderOpen, FolderX, Undo2 } from 'lucide-react'
 import type { HistoryEntry } from '@shared/types'
 import { call, tidy, toast, useSettings } from '../api'
+import { DropZone } from '../components/DropZone'
 import { Button, Card, Checkbox, Empty, PageHeader } from '../components/ui'
 
 export function EmptyFoldersPage(): JSX.Element {
@@ -54,7 +55,7 @@ export function EmptyFoldersPage(): JSX.Element {
   const display = [...(found ?? [])].sort((a, b) => a.localeCompare(b))
 
   return (
-    <>
+    <DropZone onFolder={(d) => void scan(d)}>
       <PageHeader
         title="Empty Folders"
         subtitle="Folders with nothing inside — not even in their subfolders. Hidden, system and .git folders are never touched."
@@ -149,6 +150,6 @@ export function EmptyFoldersPage(): JSX.Element {
           </ul>
         </Card>
       )}
-    </>
+    </DropZone>
   )
 }
