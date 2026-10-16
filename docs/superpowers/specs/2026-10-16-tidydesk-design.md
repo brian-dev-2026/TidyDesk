@@ -66,7 +66,7 @@ Renderer (React)  ──window.tidy API──▶  Preload (contextBridge)  ─�
 | `history.ts` | Append and read the activity log, kept in `%APPDATA%\TidyDesk\history.json`. |
 | `scheduler.ts` | Runs `purgeExpired()` and the Recycle Bin sweep at startup and every 5 minutes. |
 | `guards.ts` | `isProtectedPath(p)`: refuses `C:\Windows`, `Program Files*`, `ProgramData`, drive roots and the Safe Bin itself. |
-| `settings.ts` | Settings stored as JSON in `%APPDATA%\TidyDesk\settings.json` (see §6.5). |
+| `settings.ts` | Settings stored as JSON in `%APPDATA%\TidyDesk\settings.json` (see §6.6). |
 | `tray.ts` | Tray icon. Closing the window hides it to the tray, and the tray menu has Quit. |
 
 Each module is pure logic plus `fs`, with no Electron imports except `tray.ts`, `index.ts` and IPC wiring. That makes them unit-testable.
@@ -147,10 +147,23 @@ Every removal goes through the Safe Bin. Nothing else in the code calls `fs.rm` 
   - Purged entries show "Permanently deleted at …" and have no restore button.
 - **Quick Clean button:** runs a junk scan with the default categories.
 
-### 6.5 Settings
+### 6.5 Dry run mode
+
+Dry run lets anyone test TidyDesk safely.
+
+- **Switching it on:** a **Dry run** toggle sits in the sidebar footer and is mirrored in Settings. While it's on, a "DRY RUN" badge shows in the title bar.
+- **What it does:** every action runs its real scan and planning, then *simulates* the change. That covers junk clean, organize, duplicate removal, Empty Recycle Bin and the scheduled Recycle Bin sweep.
+  - **No changes:** no file is moved, renamed or deleted, and no folder is created.
+  - **Records:** each simulated action still writes a history entry, marked `dryRun: true` with status `simulated`. Its items are listed with state `would-remove`, or its moves with their planned targets.
+  - **Results:** result screens say "Dry run — X would be freed / N files would be moved. Nothing was changed."
+  - **Dashboard:** simulated entries carry a "Dry run" badge and have no Restore, Undo or Delete now buttons.
+- **Scheduler:** in dry run, Safe Bin purges and the Recycle Bin sweep don't run. That way, turning on dry run never permanently deletes anything.
+
+### 6.6 Settings
 
 | Setting | Default |
 |---|---|
+| `dryRun` | false |
 | Theme (dark, light, system) | system |
 | `holdHours` (Safe Bin and Recycle Bin sweep) | 5 |
 | `sweepWindowsRecycleBin` | true |
@@ -194,6 +207,7 @@ Vitest unit tests run against real temporary folders:
 - **duplicates:** identical content with different names, same size with different content, and empty input.
 - **safebin:** quarantine, restore (including a conflict at the original path), purge and expiry.
 - **guards:** protected-path matrix.
+- **dry run:** for the Safe Bin, organizer and scheduler, a dry run leaves the file tree byte-for-byte unchanged and records a `simulated` entry.
 - **history:** atomic write, the cap, and corrupt-file recovery.
 
 `recyclebin.ts` and the junk path definitions are checked by hand on Windows, because they touch real system locations.
