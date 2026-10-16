@@ -4,6 +4,7 @@ import { call, SettingsContext, tidy } from './api'
 import { Sidebar, type Page } from './components/Sidebar'
 import { TitleBar } from './components/TitleBar'
 import { Toasts } from './components/Toasts'
+import { FirstRunNotice } from './components/FirstRunNotice'
 import { DashboardPage } from './pages/Dashboard'
 import { JunkPage } from './pages/Junk'
 import { OrganizerPage } from './pages/Organizer'
@@ -59,6 +60,7 @@ export function App(): JSX.Element {
           </main>
         </div>
       </div>
+      <FirstRunNotice />
       <Toasts />
     </SettingsContext.Provider>
   )
