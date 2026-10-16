@@ -5,6 +5,7 @@ import path from 'path'
 import type { DupGroup, FileInfo } from '@shared/types'
 import { isProtectedPath } from './guards'
 import { walkFiles } from './fsutil'
+import { excluder, isExcluded } from './exclusions'
 
 const HEAD_BYTES = 65536
 
@@ -18,6 +19,7 @@ export interface FindOptions {
   minSize: number
   signal?: AbortSignal
   onProgress?: (p: DupProgress) => void
+  exclusions?: string[]
 }
 
 async function headHash(file: string): Promise<string> {
@@ -52,12 +54,13 @@ function checkAbort(signal?: AbortSignal): void {
 /** Groups files under dir whose contents are byte-identical (size → 64 KB head hash → full SHA-256). */
 export async function findDuplicates(dir: string, opts: FindOptions): Promise<DupGroup[]> {
   if (isProtectedPath(dir)) throw new Error('Protected folder')
+  if (opts.exclusions && isExcluded(dir, opts.exclusions)) throw new Error('This folder is in your exclusions list')
   const { signal, onProgress } = opts
   checkAbort(signal)
 
   const bySize = new Map<number, FileInfo[]>()
   let listed = 0
-  for await (const f of walkFiles(dir, { signal })) {
+  for await (const f of walkFiles(dir, { signal, exclude: excluder(opts.exclusions) })) {
     listed++
     if (listed % 500 === 0) onProgress?.({ phase: 'listing', done: listed, total: 0 })
     if (f.size < opts.minSize) continue

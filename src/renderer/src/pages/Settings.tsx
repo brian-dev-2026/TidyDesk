@@ -3,6 +3,7 @@ import { Monitor, Moon, Sun } from 'lucide-react'
 import type { Settings } from '@shared/types'
 import { call, tidy, useSettings } from '../api'
 import { Card, cx, PageHeader, Toggle } from '../components/ui'
+import { ExclusionsCard } from '../components/ExclusionsCard'
 
 function Row({ title, description, children }: { title: string; description: ReactNode; children: ReactNode }): JSX.Element {
   return (
@@ -123,6 +124,8 @@ export function SettingsPage(): JSX.Element {
           </Row>
         </div>
       </Card>
+
+      <ExclusionsCard />
 
       <Card title="Scanning & startup" className="mb-5">
         <div className="divide-y divide-line">

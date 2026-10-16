@@ -13,6 +13,7 @@ const channels = [
   'recycleInfo',
   'emptyRecycleBin',
   'pickFolder',
+  'pickFile',
   'organizePlan',
   'organizeApply',
   'organizeUndo',

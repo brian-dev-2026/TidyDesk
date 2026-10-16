@@ -6,6 +6,7 @@ import type { BinItem, EntryStatus, HistoryEntry, Orphan } from '@shared/types'
 import type { HistoryStore } from './history'
 import { BIN_DIR_NAME } from './guards'
 import { getLog } from './logger'
+import { isExcluded } from './exclusions'
 import { dirSize, mapLimit, moveFile, uniquePath } from './fsutil'
 
 export interface SafeBinOpts {
@@ -25,6 +26,8 @@ export interface QuarantineMeta {
   dryRun?: boolean
   /** Files modified after this time (ms) are skipped with reason RECENT. */
   skipNewerThan?: number
+  /** Paths inside these are skipped with reason EXCLUDED. */
+  exclusions?: string[]
 }
 
 const HOUR = 3600000
@@ -146,6 +149,9 @@ export class SafeBin {
     let done = 0
     const items = await mapLimit(files, meta.dryRun ? STAT_CONCURRENCY : CONCURRENCY, async (originalPath, i): Promise<BinItem> => {
       try {
+        if (meta.exclusions && isExcluded(originalPath, meta.exclusions)) {
+          return { originalPath, binPath: '', size: 0, state: 'skipped', reason: 'EXCLUDED' }
+        }
         const st = await fs.lstat(originalPath)
         if (meta.skipNewerThan !== undefined && st.mtimeMs > meta.skipNewerThan) {
           return { originalPath, binPath: '', size: 0, state: 'skipped', reason: 'RECENT' }

@@ -14,7 +14,12 @@ describe('SettingsStore', () => {
       closeToTray: true,
       startWithWindows: false,
       firstRunNoticeSeen: false,
-      dryRun: false
+      dryRun: false,
+      autoDownloadUpdates: true,
+      exclusions: [],
+      autoClean: 'off',
+      autoCleanCategories: ['user-temp', 'windows-temp', 'thumbnails', 'crash-dumps'],
+      organizeMode: 'type'
     })
   })
 
@@ -48,5 +53,37 @@ describe('SettingsStore', () => {
     expect((await s2.set({ holdHours: -3 })).holdHours).toBe(1)
     expect((await s2.set({ holdHours: 9999 })).holdHours).toBe(168)
     expect((await s2.set({ holdHours: 2.6 })).holdHours).toBe(3)
+  })
+
+  it('validates the v1.0 fields', async () => {
+    const d = await tmpDir()
+    await fs.writeFile(
+      path.join(d, 'settings.json'),
+      JSON.stringify({
+        autoClean: 'hourly',
+        organizeMode: 'x',
+        autoDownloadUpdates: 'yes',
+        exclusions: ['relative', 'C:\\\\keep'],
+        autoCleanCategories: ['user-temp', 'nope', 7],
+        lastAutoClean: -1
+      })
+    )
+    const s = await new SettingsStore(d).get()
+    expect(s.autoClean).toBe('off')
+    expect(s.organizeMode).toBe('type')
+    expect(s.autoDownloadUpdates).toBe(true)
+    expect(s.exclusions).toEqual(['C:\\keep'])
+    expect(s.autoCleanCategories).toEqual(['user-temp'])
+    expect(s.lastAutoClean).toBeUndefined()
+  })
+
+  it('v1.0 defaults', () => {
+    expect(DEFAULT_SETTINGS).toMatchObject({
+      autoDownloadUpdates: true,
+      exclusions: [],
+      autoClean: 'off',
+      autoCleanCategories: ['user-temp', 'windows-temp', 'thumbnails', 'crash-dumps'],
+      organizeMode: 'type'
+    })
   })
 })

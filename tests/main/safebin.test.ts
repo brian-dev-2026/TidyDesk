@@ -362,4 +362,14 @@ describe('SafeBin', () => {
     for (const f of files) expect(await exists(f)).toBe(true)
     expect((await history.get(e.id))!.status).toBe('restored')
   })
+
+  it('quarantine skips paths excluded at action time', async () => {
+    const { work, safeBin } = await setup()
+    const keep = await write(path.join(work, 'keep', 'a.txt'))
+    const go = await write(path.join(work, 'b.txt'))
+    const e = await safeBin.quarantine([keep, go], { type: 'junk', title: 't', exclusions: [path.join(work, 'keep')] })
+    expect(e.count).toBe(1)
+    expect(e.items!.find((i) => i.originalPath === keep)).toMatchObject({ state: 'skipped', reason: 'EXCLUDED' })
+    expect(await exists(keep)).toBe(true)
+  })
 })

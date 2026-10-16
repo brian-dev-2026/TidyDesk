@@ -155,4 +155,23 @@ describe('organizer', () => {
     const plan = await planOrganize(dir)
     expect(plan.map((m) => path.basename(m.from))).toEqual(['visible.pdf'])
   })
+
+  it('planOrganize refuses an excluded folder and leaves out excluded files', async () => {
+    const { dir } = await setup()
+    await write(path.join(dir, 'a.pdf'))
+    const secret = await write(path.join(dir, 'secret.pdf'))
+    await expect(planOrganize(dir, { exclusions: [dir] })).rejects.toThrow('excluded')
+    const plan = await planOrganize(dir, { exclusions: [secret] })
+    expect(plan.map((m) => path.basename(m.from))).toEqual(['a.pdf'])
+  })
+
+  it('applyOrganize skips moves from excluded paths', async () => {
+    const { dir, history } = await setup()
+    const a = await write(path.join(dir, 'a.pdf'))
+    const plan = await planOrganize(dir)
+    const e = await applyOrganize(dir, plan, history, { exclusions: [a] })
+    expect(e.count).toBe(0)
+    expect(e.skipped).toBe(1)
+    expect(await exists(a)).toBe(true)
+  })
 })

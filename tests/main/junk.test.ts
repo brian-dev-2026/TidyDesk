@@ -97,4 +97,16 @@ describe('junk', () => {
     expect(c).toBeDefined()
     expect(c!.total).toBeGreaterThan(c!.free)
   })
+
+  it('scanJunk leaves out excluded files', async () => {
+    const { env } = await fakeEnv()
+    await old(path.join(env.TEMP, 'mine', 'keep.tmp'))
+    await old(path.join(env.TEMP, 'x.tmp'))
+    const { files } = await scanJunk(junkCategories(env), {
+      now: NOW,
+      running: new Set(),
+      exclusions: [path.join(env.TEMP, 'mine')]
+    })
+    expect(files['user-temp'].map((f) => path.basename(f))).toEqual(['x.tmp'])
+  })
 })

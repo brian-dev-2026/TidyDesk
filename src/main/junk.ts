@@ -3,6 +3,7 @@ import path from 'path'
 import { execFile } from 'child_process'
 import type { JunkCategory } from '@shared/types'
 import { walkFiles } from './fsutil'
+import { excluder } from './exclusions'
 
 export interface JunkRoot {
   /** May contain a single "*" segment, expanded to every subfolder (browser profiles). */
@@ -101,6 +102,7 @@ export interface ScanOptions {
   running?: Set<string>
   /** done/total categories, plus the number of files looked at so far. */
   onProgress?: (done: number, total: number, filesSeen: number) => void
+  exclusions?: string[]
 }
 
 export async function scanJunk(
@@ -123,8 +125,9 @@ export async function scanJunk(
         continue
       }
       for (const dir of await expand(root.path)) {
+        if (opts.exclusions && excluder(opts.exclusions)!(dir)) continue
         // the filtered categories (thumbnails) only look at the folder's own files
-        for await (const f of walkFiles(dir)) {
+        for await (const f of walkFiles(dir, { exclude: excluder(opts.exclusions) })) {
           if (++seen % 2000 === 0) opts.onProgress?.(done, defs.length, seen)
           if (def.filePattern && (path.dirname(f.path) !== dir || !def.filePattern.test(path.basename(f.path)))) continue
           if (f.mtimeMs > now - RECENT_MS) continue

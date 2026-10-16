@@ -70,6 +70,13 @@ export interface Settings {
   startWithWindows: boolean
   firstRunNoticeSeen: boolean
   dryRun: boolean
+  autoDownloadUpdates: boolean
+  exclusions: string[]
+  autoClean: 'off' | 'daily' | 'weekly'
+  autoCleanCategories: string[]
+  lastAutoClean?: number
+  organizerCategories?: Record<string, string[]>
+  organizeMode: 'type' | 'date'
 }
 
 export interface DupGroup {
@@ -124,6 +131,7 @@ export interface TidyApi {
   recycleInfo(): R<RecycleInfo>
   emptyRecycleBin(): R<RecycleInfo>
   pickFolder(): R<string | null>
+  pickFile(): R<string | null>
   organizePlan(dir: string): R<Move[]>
   organizeApply(dir: string, moves: Move[]): R<HistoryEntry>
   organizeUndo(id: string): R<HistoryEntry>

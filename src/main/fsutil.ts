@@ -65,6 +65,8 @@ const STAT_BATCH = 64
 const DIR_CONCURRENCY = 16
 
 export interface WalkOptions {
+  /** Paths (folders or files) for which this returns true are not entered or yielded. */
+  exclude?: (p: string) => boolean
   skipHidden?: boolean
   signal?: AbortSignal
 }
@@ -98,6 +100,7 @@ export async function* walkFiles(dir: string, opts: WalkOptions = {}): AsyncGene
       if (e.name.toLowerCase() === BIN_DIR_NAME) continue
       if (opts.skipHidden && e.name.startsWith('.')) continue
       const p = path.join(current, e.name)
+      if (opts.exclude?.(p)) continue
       if (e.isDirectory()) pending.push(p)
       else if (e.isFile()) files.push(p)
     }

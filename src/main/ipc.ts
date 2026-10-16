@@ -76,8 +76,10 @@ export function registerIpc(deps: IpcDeps): { notifyHistoryChanged: () => void }
 
   handle('junkScan', async () => {
     const report = progress('junk')
+    const { exclusions } = await settings.get()
     const { categories, files } = await scanJunk(junkCategories(process.env), {
       running: await runningBrowsers(),
+      exclusions,
       onProgress: (d, t, seen) => report(`Scanned ${seen.toLocaleString('en-US')} files`, d, t)
     })
     junkFiles = files
@@ -87,13 +89,13 @@ export function registerIpc(deps: IpcDeps): { notifyHistoryChanged: () => void }
   handle('junkClean', async (ids: string[]) => {
     const files = ids.filter((id) => id !== 'recycle-bin').flatMap((id) => junkFiles[id] ?? [])
     if (!files.length) throw new Error('Nothing to clean — run a scan first')
-    const { dryRun } = await settings.get()
+    const { dryRun, exclusions } = await settings.get()
     const report = progress('junk')
     const entry = await withChange(
       safeBin.quarantine(
         files,
-        // re-apply the 1-hour rule at clean time: a file may have become active since the scan
-        { type: 'junk', title: 'Junk clean', dryRun, skipNewerThan: Date.now() - 3600000 },
+        // re-apply the 1-hour rule and exclusions at clean time: things may have changed since the scan
+        { type: 'junk', title: 'Junk clean', dryRun, exclusions, skipNewerThan: Date.now() - 3600000 },
         (d, t) => report('Cleaning', d, t)
       )
     )
@@ -131,11 +133,18 @@ export function registerIpc(deps: IpcDeps): { notifyHistoryChanged: () => void }
     return r.canceled ? null : r.filePaths[0] ?? null
   })
 
-  handle('organizePlan', (dir: string) => planOrganize(dir))
+  handle('pickFile', async () => {
+    const w = deps.getWindow()
+    const opts = { properties: ['openFile' as const] }
+    const r = w ? await dialog.showOpenDialog(w, opts) : await dialog.showOpenDialog(opts)
+    return r.canceled ? null : r.filePaths[0] ?? null
+  })
+
+  handle('organizePlan', async (dir: string) => planOrganize(dir, { exclusions: (await settings.get()).exclusions }))
 
   handle('organizeApply', async (dir: string, moves) => {
-    const { dryRun } = await settings.get()
-    return strip(await withChange(applyOrganize(dir, moves as never, history, { dryRun })))
+    const { dryRun, exclusions } = await settings.get()
+    return strip(await withChange(applyOrganize(dir, moves as never, history, { dryRun, exclusions })))
   })
 
   handle('organizeUndo', async (id: string) => {
@@ -147,12 +156,13 @@ export function registerIpc(deps: IpcDeps): { notifyHistoryChanged: () => void }
     dupAbort?.abort()
     const ac = new AbortController()
     dupAbort = ac
-    const { minDuplicateSize } = await settings.get()
+    const { minDuplicateSize, exclusions } = await settings.get()
     const report = progress('dup')
     try {
       lastDupGroups = null
       const groups = await findDuplicates(dir, {
         minSize: minDuplicateSize,
+        exclusions,
         signal: ac.signal,
         onProgress: (p) => report(p.phase, p.done, p.total)
       })
@@ -172,12 +182,12 @@ export function registerIpc(deps: IpcDeps): { notifyHistoryChanged: () => void }
     const bad = paths.find((p) => isProtectedPath(p))
     if (bad) throw new Error(`Protected location: ${bad}`)
     validateDupRemoval(lastDupGroups, paths)
-    const { dryRun } = await settings.get()
+    const { dryRun, exclusions } = await settings.get()
     const report = progress('dup')
     const title = `Removed ${paths.length} duplicate${paths.length === 1 ? '' : 's'}`
     return strip(
       await withChange(
-        safeBin.quarantine(paths, { type: 'duplicates', title, dryRun }, (d, t) => report('Moving', d, t))
+        safeBin.quarantine(paths, { type: 'duplicates', title, dryRun, exclusions }, (d, t) => report('Moving', d, t))
       )
     )
   })

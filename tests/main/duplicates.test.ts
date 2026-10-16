@@ -122,4 +122,11 @@ describe('validateDupRemoval', () => {
   it('rejects when there is no scan', () => {
     expect(() => validateDupRemoval(null, [w('a', '2.jpg')])).toThrow('not part of the last duplicate scan')
   })
+
+  it('findDuplicates does not enter excluded folders', async () => {
+    const d = await tmpDir()
+    await write(path.join(d, 'a.bin'), big(1))
+    await write(path.join(d, 'private', 'a-copy.bin'), big(1))
+    expect(await findDuplicates(d, { minSize: 1, exclusions: [path.join(d, 'private')] })).toEqual([])
+  })
 })

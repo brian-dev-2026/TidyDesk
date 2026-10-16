@@ -1,6 +1,7 @@
 import fs from 'fs/promises'
 import path from 'path'
 import type { Settings } from '@shared/types'
+import { normaliseExclusions } from './exclusions'
 
 export const DEFAULT_SETTINGS: Settings = {
   theme: 'system',
@@ -10,8 +11,15 @@ export const DEFAULT_SETTINGS: Settings = {
   closeToTray: true,
   startWithWindows: false,
   firstRunNoticeSeen: false,
-  dryRun: false
+  dryRun: false,
+  autoDownloadUpdates: true,
+  exclusions: [],
+  autoClean: 'off',
+  autoCleanCategories: ['user-temp', 'windows-temp', 'thumbnails', 'crash-dumps'],
+  organizeMode: 'type'
 }
+
+export const JUNK_CATEGORY_IDS = ['user-temp', 'windows-temp', 'browser-cache', 'thumbnails', 'crash-dumps']
 
 const THEMES: Settings['theme'][] = ['system', 'dark', 'light']
 
@@ -26,9 +34,16 @@ export function sanitizeSettings(raw: unknown): Settings {
   if (typeof r.minDuplicateSize === 'number' && Number.isFinite(r.minDuplicateSize)) {
     out.minDuplicateSize = Math.max(0, Math.round(r.minDuplicateSize))
   }
-  for (const k of ['sweepWindowsRecycleBin', 'closeToTray', 'startWithWindows', 'firstRunNoticeSeen', 'dryRun'] as const) {
+  for (const k of ['sweepWindowsRecycleBin', 'closeToTray', 'startWithWindows', 'firstRunNoticeSeen', 'dryRun', 'autoDownloadUpdates'] as const) {
     if (typeof r[k] === 'boolean') out[k] = r[k] as boolean
   }
+  out.exclusions = normaliseExclusions(r.exclusions)
+  if (r.autoClean === 'daily' || r.autoClean === 'weekly' || r.autoClean === 'off') out.autoClean = r.autoClean
+  if (Array.isArray(r.autoCleanCategories)) {
+    out.autoCleanCategories = [...new Set(r.autoCleanCategories.filter((c): c is string => typeof c === 'string' && JUNK_CATEGORY_IDS.includes(c)))]
+  }
+  if (typeof r.lastAutoClean === 'number' && Number.isFinite(r.lastAutoClean) && r.lastAutoClean >= 0) out.lastAutoClean = r.lastAutoClean
+  if (r.organizeMode === 'type' || r.organizeMode === 'date') out.organizeMode = r.organizeMode
   return out
 }
 

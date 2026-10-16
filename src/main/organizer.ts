@@ -5,6 +5,7 @@ import type { HistoryStore } from './history'
 import { isProtectedPath } from './guards'
 import { execFile } from 'child_process'
 import { moveFile, pathExists, uniquePath } from './fsutil'
+import { isExcluded } from './exclusions'
 
 export const CATEGORIES: Record<string, string[]> = {
   Images: ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp', 'svg', 'heic', 'tiff', 'ico', 'raw'],
@@ -64,8 +65,14 @@ function hiddenOrSystemNames(dir: string): Promise<Set<string>> {
 }
 
 /** Plans moving every top-level, non-hidden file of dir into category subfolders. Touches nothing on disk. */
-export async function planOrganize(dir: string): Promise<Move[]> {
+export interface PlanOptions {
+  exclusions?: string[]
+}
+
+export async function planOrganize(dir: string, opts: PlanOptions = {}): Promise<Move[]> {
   if (isProtectedPath(dir)) throw new Error('Protected folder')
+  const exclusions = opts.exclusions ?? []
+  if (isExcluded(dir, exclusions)) throw new Error('This folder is in your exclusions list (excluded)')
   const [entries, hidden] = await Promise.all([fs.readdir(dir, { withFileTypes: true }), hiddenOrSystemNames(dir)])
   const folders = new Map<string, string>()
   const taken = new Set<string>()
@@ -74,6 +81,7 @@ export async function planOrganize(dir: string): Promise<Move[]> {
     if (!e.isFile()) continue
     const lower = e.name.toLowerCase()
     if (e.name.startsWith('.') || HIDDEN_NAMES.has(lower) || FOLDER_NAMES.has(lower) || hidden.has(lower)) continue
+    if (isExcluded(path.join(dir, e.name), exclusions)) continue
     const category = categoryOf(e.name)
     if (!folders.has(category)) folders.set(category, await categoryFolder(dir, category))
     const to = await uniquePath(path.join(folders.get(category)!, e.name), undefined, taken)
@@ -87,7 +95,7 @@ export async function applyOrganize(
   dir: string,
   moves: Move[],
   history: HistoryStore,
-  opts: { dryRun?: boolean } = {}
+  opts: { dryRun?: boolean; exclusions?: string[] } = {}
 ): Promise<HistoryEntry> {
   if (isProtectedPath(dir)) throw new Error('Protected folder')
   const base = path.resolve(dir).toLowerCase()
@@ -101,6 +109,10 @@ export async function applyOrganize(
   let skipped = 0
   if (!opts.dryRun) {
     for (const m of done) {
+      if (opts.exclusions && isExcluded(m.from, opts.exclusions)) {
+        skipped++
+        continue
+      }
       const parent = path.dirname(m.to)
       const existed = await pathExists(parent)
       try {
