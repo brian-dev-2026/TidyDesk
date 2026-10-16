@@ -11,14 +11,13 @@ import { isProtectedPath } from './guards'
 import { listDrives } from './disk'
 import { junkCategories, runningBrowsers, scanJunk } from './junk'
 import { emptyRecycleBin, recycleBinInfo } from './recyclebin'
-import { applyOrganize, planOrganize, undoOrganize } from './organizer'
-import { findDuplicates, validateDupRemoval } from './duplicates'
+import { autoOrganize, undoOrganize } from './organizer'
+import { findDuplicates, pickDuplicateRemovals } from './duplicates'
 import { getLog } from './logger'
 import type { Updater } from './updater'
 import { findLargeFiles } from './largefiles'
 import { CSV_HEADER, csvLine, historyToCsvRows } from './csv'
 import { findEmptyFolders, removeEmptyFolders, restoreEmptyFolders } from './emptyfolders'
-import type { DupGroup } from '@shared/types'
 
 export interface IpcDeps {
   history: HistoryStore
@@ -34,7 +33,6 @@ export function registerIpc(deps: IpcDeps): { notifyHistoryChanged: () => void; 
   const { history, settings, safeBin } = deps
   let junkFiles: Record<string, string[]> = {}
   let dupAbort: AbortController | null = null
-  let lastDupGroups: DupGroup[] | null = null
   let largeAbort: AbortController | null = null
   let lastLarge: Set<string> | null = null
   let lastEmpty: Set<string> | null = null
@@ -152,14 +150,43 @@ export function registerIpc(deps: IpcDeps): { notifyHistoryChanged: () => void; 
     return r.canceled ? null : r.filePaths[0] ?? null
   })
 
-  handle('organizePlan', async (dir: string) => {
+  /** The folders the one-click actions use: the user's list, or the standard ones. */
+  const autoFolders = async (): Promise<{ organize: string[]; duplicates: string[] }> => {
     const s = await settings.get()
-    return planOrganize(dir, { exclusions: s.exclusions, mode: s.organizeMode, categories: s.organizerCategories })
-  })
+    const known = (['desktop', 'documents', 'downloads', 'pictures', 'music', 'videos'] as const).flatMap((k) => {
+      try {
+        return [app.getPath(k)]
+      } catch {
+        return [] // a folder Windows does not know about
+      }
+    })
+    return {
+      organize: s.organizeFolders ?? known.slice(0, 1),
+      duplicates: s.duplicateFolders ?? known
+    }
+  }
 
-  handle('organizeApply', async (dir: string, moves) => {
-    const { dryRun, exclusions } = await settings.get()
-    return strip(await withChange(applyOrganize(dir, moves as never, history, { dryRun, exclusions })))
+  handle('autoFolders', autoFolders)
+
+  /** A folder list from the page (a dropped folder) must be absolute paths. */
+  const folderList = (dirs: unknown): string[] | undefined => {
+    if (dirs === undefined || dirs === null) return undefined
+    if (!Array.isArray(dirs) || !dirs.every((d) => typeof d === 'string' && path.win32.isAbsolute(d))) throw new Error('Invalid folder list')
+    return dirs
+  }
+
+  handle('organizeAuto', async (dirs?: string[]) => {
+    const s = await settings.get()
+    const list = folderList(dirs) ?? (await autoFolders()).organize
+    if (!list.length) throw new Error('Add a folder to organize first')
+    const r = await autoOrganize(list, history, {
+      dryRun: s.dryRun,
+      exclusions: s.exclusions,
+      mode: s.organizeMode,
+      categories: s.organizerCategories
+    })
+    if (r.entries.length) notifyHistoryChanged()
+    return { entries: r.entries.map(strip), errors: r.errors }
   })
 
   handle('organizeUndo', async (id: string) => {
@@ -167,22 +194,30 @@ export function registerIpc(deps: IpcDeps): { notifyHistoryChanged: () => void; 
     return strip(await withChange(undoOrganize(id, history, { dryRun })))
   })
 
-  handle('dupScan', async (dir: string) => {
+  handle('dupAuto', async (dirs?: string[]) => {
     dupAbort?.abort()
     const ac = new AbortController()
     dupAbort = ac
-    const { minDuplicateSize, exclusions } = await settings.get()
+    const { minDuplicateSize, exclusions, dryRun } = await settings.get()
+    const list = folderList(dirs) ?? (await autoFolders()).duplicates
+    if (!list.length) throw new Error('Add a folder to check first')
     const report = progress('dup')
     try {
-      lastDupGroups = null
-      const groups = await findDuplicates(dir, {
+      const groups = await findDuplicates(list, {
         minSize: minDuplicateSize,
         exclusions,
         signal: ac.signal,
         onProgress: (p) => report(p.phase, p.done, p.total)
       })
-      lastDupGroups = groups
-      return groups
+      if (ac.signal.aborted) throw new Error('Cancelled')
+      const paths = pickDuplicateRemovals(groups).filter((p) => !isProtectedPath(p))
+      if (!paths.length) return null
+      const title = `Removed ${paths.length} duplicate${paths.length === 1 ? '' : 's'}`
+      return strip(
+        await withChange(
+          safeBin.quarantine(paths, { type: 'duplicates', title, dryRun, exclusions }, (d, t) => report('Moving', d, t))
+        )
+      )
     } finally {
       if (dupAbort === ac) dupAbort = null
     }
@@ -190,21 +225,6 @@ export function registerIpc(deps: IpcDeps): { notifyHistoryChanged: () => void; 
 
   handle('dupCancel', () => {
     dupAbort?.abort()
-  })
-
-  handle('dupRemove', async (paths: string[]) => {
-    if (!paths.length) throw new Error('No files selected')
-    const bad = paths.find((p) => isProtectedPath(p))
-    if (bad) throw new Error(`Protected location: ${bad}`)
-    validateDupRemoval(lastDupGroups, paths)
-    const { dryRun, exclusions } = await settings.get()
-    const report = progress('dup')
-    const title = `Removed ${paths.length} duplicate${paths.length === 1 ? '' : 's'}`
-    return strip(
-      await withChange(
-        safeBin.quarantine(paths, { type: 'duplicates', title, dryRun, exclusions }, (d, t) => report('Moving', d, t))
-      )
-    )
   })
 
   handle('largeScan', async (dir: string) => {

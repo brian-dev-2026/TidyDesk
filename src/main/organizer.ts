@@ -22,6 +22,8 @@ export const DEFAULT_CATEGORIES: Record<string, string[]> = {
 export const CATEGORIES = DEFAULT_CATEGORIES
 const OTHER = 'Other'
 const HIDDEN_NAMES = new Set(['desktop.ini', 'thumbs.db'])
+/** Shortcuts stay put: on a desktop they are how people open their apps. */
+const SHORTCUT_EXT = new Set(['.lnk', '.url', '.website'])
 const RESERVED_WIN = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/i
 
 function extensionMap(categories: Record<string, string[]>): Map<string, string> {
@@ -131,6 +133,7 @@ export async function planOrganize(dir: string, opts: PlanOptions = {}): Promise
     if (!e.isFile()) continue
     const lower = e.name.toLowerCase()
     if (e.name.startsWith('.') || HIDDEN_NAMES.has(lower) || hidden.has(lower)) continue
+    if (SHORTCUT_EXT.has(path.extname(lower))) continue
     if (opts.mode !== 'date' && folderNames.has(lower)) continue
     const from = path.join(dir, e.name)
     if (isExcluded(from, exclusions)) continue
@@ -234,4 +237,26 @@ export async function undoOrganize(
   const dirs = [...(e.createdDirs ?? [])].sort((a, b) => b.split(path.sep).length - a.split(path.sep).length)
   for (const d of dirs) await fs.rmdir(d).catch(() => {})
   return history.update(e.id, { moves, status: 'undone' })
+}
+
+/**
+ * One click: plans and applies organizing for each folder. Folders with nothing to move get no
+ * history entry; a folder that cannot be organized is reported and the rest still run.
+ */
+export async function autoOrganize(
+  dirs: string[],
+  history: HistoryStore,
+  opts: PlanOptions & { dryRun?: boolean } = {}
+): Promise<{ entries: HistoryEntry[]; errors: { dir: string; error: string }[] }> {
+  const entries: HistoryEntry[] = []
+  const errors: { dir: string; error: string }[] = []
+  for (const dir of dirs) {
+    try {
+      const moves = await planOrganize(dir, opts)
+      if (moves.length) entries.push(await applyOrganize(dir, moves, history, { dryRun: opts.dryRun, exclusions: opts.exclusions }))
+    } catch (e) {
+      errors.push({ dir, error: e instanceof Error ? e.message : String(e) })
+    }
+  }
+  return { entries, errors }
 }

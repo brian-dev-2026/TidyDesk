@@ -8,6 +8,8 @@ import { walkFiles } from './fsutil'
 import { excluder, isExcluded } from './exclusions'
 
 const HEAD_BYTES = 65536
+/** Folders whose identical files belong to programs or projects, not to the user. */
+const DEV_DIRS = new Set(['node_modules', '__pycache__', 'site-packages', 'bower_components'])
 
 export interface DupProgress {
   phase: 'listing' | 'hashing'
@@ -51,22 +53,53 @@ function checkAbort(signal?: AbortSignal): void {
   if (signal?.aborted) throw new Error('Cancelled')
 }
 
-/** Groups files under dir whose contents are byte-identical (size → 64 KB head hash → full SHA-256). */
-export async function findDuplicates(dir: string, opts: FindOptions): Promise<DupGroup[]> {
-  if (isProtectedPath(dir)) throw new Error('Protected folder')
-  if (opts.exclusions && isExcluded(dir, opts.exclusions)) throw new Error('This folder is in your exclusions list')
+/** Unique roots, dropping any that sit inside another, so no file is listed twice. */
+function distinctRoots(dirs: string[]): string[] {
+  // path.resolve drops trailing separators except on a drive root such as C:\
+  const key = (p: string): string => path.resolve(p).toLowerCase()
+  const keys = [...new Set(dirs.map(key))]
+  const inside = (k: string): boolean => keys.some((o) => o !== k && k.startsWith(o.endsWith(path.sep) ? o : o + path.sep))
+  const out: string[] = []
+  const seen = new Set<string>()
+  for (const d of dirs) {
+    const k = key(d)
+    if (seen.has(k) || inside(k)) continue
+    seen.add(k)
+    out.push(path.resolve(d))
+  }
+  return out
+}
+
+/**
+ * Groups files under one or more folders whose contents are byte-identical
+ * (size → 64 KB head hash → full SHA-256). Hidden and developer folders are skipped.
+ */
+export async function findDuplicates(dirs: string | string[], opts: FindOptions): Promise<DupGroup[]> {
+  const roots = distinctRoots(typeof dirs === 'string' ? [dirs] : dirs)
+  for (const dir of roots) {
+    if (isProtectedPath(dir)) throw new Error('Protected folder')
+    if (opts.exclusions && isExcluded(dir, opts.exclusions)) throw new Error('This folder is in your exclusions list')
+  }
   const { signal, onProgress } = opts
   checkAbort(signal)
 
+  const excluded = excluder(opts.exclusions)
+  const exclude = (p: string): boolean => DEV_DIRS.has(path.basename(p).toLowerCase()) || !!excluded?.(p)
   const bySize = new Map<number, FileInfo[]>()
+  const seen = new Set<string>()
   let listed = 0
-  for await (const f of walkFiles(dir, { signal, exclude: excluder(opts.exclusions) })) {
-    listed++
-    if (listed % 500 === 0) onProgress?.({ phase: 'listing', done: listed, total: 0 })
-    if (f.size < opts.minSize) continue
-    const g = bySize.get(f.size)
-    if (g) g.push(f)
-    else bySize.set(f.size, [f])
+  for (const dir of roots) {
+    for await (const f of walkFiles(dir, { signal, exclude, skipHidden: true })) {
+      const k = f.path.toLowerCase()
+      if (seen.has(k)) continue
+      seen.add(k)
+      listed++
+      if (listed % 500 === 0) onProgress?.({ phase: 'listing', done: listed, total: 0 })
+      if (f.size < opts.minSize) continue
+      const g = bySize.get(f.size)
+      if (g) g.push(f)
+      else bySize.set(f.size, [f])
+    }
   }
   onProgress?.({ phase: 'listing', done: listed, total: listed })
 
@@ -111,21 +144,10 @@ export async function findDuplicates(dir: string, opts: FindOptions): Promise<Du
   return groups.sort((a, b) => b.size * (b.files.length - 1) - a.size * (a.files.length - 1))
 }
 
-/**
- * Checks a removal request from the UI against the last scan: every path must be a file the scan
- * reported, and every group must keep at least one copy.
- */
-export function validateDupRemoval(groups: DupGroup[] | null, paths: string[]): void {
-  const key = (p: string): string => path.win32.normalize(p).toLowerCase()
-  const groupOf = new Map<string, DupGroup>()
-  for (const g of groups ?? []) for (const f of g.files) groupOf.set(key(f.path), g)
-  const removing = new Map<DupGroup, number>()
-  for (const p of paths) {
-    const g = groupOf.get(key(p))
-    if (!g) throw new Error(`${p} is not part of the last duplicate scan — scan again first`)
-    removing.set(g, (removing.get(g) ?? 0) + 1)
-  }
-  for (const [g, n] of removing) {
-    if (n >= g.files.length) throw new Error('Each group must keep at least one copy')
-  }
+/** The copies to remove: every file of each group except the oldest (ties keep the shorter path). */
+export function pickDuplicateRemovals(groups: DupGroup[]): string[] {
+  return groups.flatMap((g) => {
+    const [, ...rest] = [...g.files].sort((a, b) => a.mtimeMs - b.mtimeMs || a.path.length - b.path.length || a.path.localeCompare(b.path))
+    return rest.map((f) => f.path)
+  })
 }

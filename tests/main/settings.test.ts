@@ -87,6 +87,16 @@ describe('SettingsStore', () => {
     })
   })
 
+  it('automatic folder lists keep absolute, unique paths and reset to defaults with null', async () => {
+    const s = new SettingsStore(await tmpDir())
+    expect((await s.get()).organizeFolders).toBeUndefined()
+    const saved = await s.set({ organizeFolders: ['C:\\Desk\\', 'c:\\desk', 'relative'], duplicateFolders: ['D:\\Photos'] })
+    expect(saved.organizeFolders).toEqual(['C:\\Desk'])
+    expect(saved.duplicateFolders).toEqual(['D:\\Photos'])
+    expect((await s.set({ organizeFolders: [] })).organizeFolders).toEqual([])
+    expect((await s.set({ organizeFolders: null as never })).organizeFolders).toBeUndefined()
+  })
+
   it('organizerCategories are validated on save and can be reset with null', async () => {
     const s = new SettingsStore(await tmpDir())
     expect((await s.set({ organizerCategories: { Pics: ['.PNG'] } })).organizerCategories).toEqual({ Pics: ['png'] })

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import fs from 'fs/promises'
 import path from 'path'
-import { planOrganize, applyOrganize, undoOrganize, validateCategories } from '../../src/main/organizer'
+import { planOrganize, applyOrganize, undoOrganize, validateCategories, autoOrganize } from '../../src/main/organizer'
 import { HistoryStore } from '../../src/main/history'
 import { tmpDir, write, exists, snapshot } from '../helpers/tmp'
 
@@ -228,5 +228,45 @@ describe('organizer', () => {
     ['nope', 'at least one category']
   ])('validateCategories rejects %j', (input, message) => {
     expect(() => validateCategories(input)).toThrow(message)
+  })
+})
+
+describe('autoOrganize', () => {
+  it('leaves shortcuts where they are', async () => {
+    const { dir } = await setup()
+    await write(path.join(dir, 'Chrome.lnk'))
+    await write(path.join(dir, 'Site.url'))
+    await write(path.join(dir, 'a.pdf'))
+    const plan = await planOrganize(dir)
+    expect(plan.map((m) => path.basename(m.from))).toEqual(['a.pdf'])
+  })
+
+  it('organizes every folder in one go and records one entry per folder', async () => {
+    const { dir, history } = await setup()
+    const desk = path.join(path.dirname(dir), 'Desktop')
+    await write(path.join(dir, 'a.pdf'))
+    await write(path.join(desk, 'b.png'))
+    const r = await autoOrganize([desk, dir], history)
+    expect(r.errors).toEqual([])
+    expect(r.entries.map((e) => e.count)).toEqual([1, 1])
+    expect(await exists(path.join(desk, 'Images', 'b.png'))).toBe(true)
+    expect(await exists(path.join(dir, 'Documents', 'a.pdf'))).toBe(true)
+  })
+
+  it('skips folders with nothing to move, and reports a folder it cannot open', async () => {
+    const { dir, history } = await setup()
+    const missing = path.join(dir, 'gone')
+    const r = await autoOrganize([dir, missing, 'C:\Windows'], history)
+    expect(r.entries).toEqual([])
+    expect(r.errors.map((e) => e.dir)).toEqual([missing, 'C:\Windows'])
+    expect(await history.list()).toEqual([])
+  })
+
+  it('dry run moves nothing', async () => {
+    const { dir, history } = await setup()
+    await write(path.join(dir, 'a.pdf'))
+    const r = await autoOrganize([dir], history, { dryRun: true })
+    expect(r.entries[0].dryRun).toBe(true)
+    expect(await exists(path.join(dir, 'a.pdf'))).toBe(true)
   })
 })

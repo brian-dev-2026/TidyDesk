@@ -45,6 +45,9 @@ export function sanitizeSettings(raw: unknown): Settings {
   }
   if (typeof r.lastAutoClean === 'number' && Number.isFinite(r.lastAutoClean) && r.lastAutoClean >= 0) out.lastAutoClean = r.lastAutoClean
   if (r.organizeMode === 'type' || r.organizeMode === 'date') out.organizeMode = r.organizeMode
+  for (const k of ['organizeFolders', 'duplicateFolders'] as const) {
+    if (Array.isArray(r[k])) out[k] = normaliseExclusions(r[k])
+  }
   if (r.organizerCategories != null) {
     try {
       out.organizerCategories = validateCategories(r.organizerCategories)
@@ -80,7 +83,8 @@ export class SettingsStore {
     // a new category table is checked strictly so the user sees what is wrong; null resets it
     if (p.organizerCategories != null) p = { ...p, organizerCategories: validateCategories(p.organizerCategories) }
     const merged: Record<string, unknown> = { ...(await this.get()), ...p }
-    if (p.organizerCategories === null) delete merged.organizerCategories
+    // null resets these to their defaults
+    for (const k of ['organizerCategories', 'organizeFolders', 'duplicateFolders'] as const) if (p[k] === null) delete merged[k]
     const next = sanitizeSettings(merged)
     await fs.mkdir(this.dir, { recursive: true })
     const tmp = this.file + '.tmp'

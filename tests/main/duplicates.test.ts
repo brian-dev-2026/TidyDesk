@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import fs from 'fs/promises'
 import path from 'path'
-import { findDuplicates, validateDupRemoval } from '../../src/main/duplicates'
+import { findDuplicates, pickDuplicateRemovals } from '../../src/main/duplicates'
 import { tmpDir, write } from '../helpers/tmp'
 
 const big = (fill: number, size = 4096) => Buffer.alloc(size, fill)
@@ -99,34 +99,66 @@ describe('findDuplicates', () => {
   })
 })
 
-describe('validateDupRemoval', () => {
-  const w = (...p: string[]) => path.win32.join('C:/', ...p)
-  const f = (p: string) => ({ path: p, size: 10, mtimeMs: 1 })
-  const groups = [
-    { hash: 'h1', size: 10, files: [f(w('a', '1.jpg')), f(w('a', '2.jpg')), f(w('a', '3.jpg'))] },
-    { hash: 'h2', size: 10, files: [f(w('b', 'x.pdf')), f(w('b', 'y.pdf'))] }
-  ]
-
-  it('accepts removing all but one per group', () => {
-    expect(() => validateDupRemoval(groups, [w('a', '2.jpg'), w('A', '3.JPG'), w('b', 'y.pdf')])).not.toThrow()
-  })
-
-  it('rejects a path that was not in the scan', () => {
-    expect(() => validateDupRemoval(groups, [w('Users', 'me', 'thesis.docx')])).toThrow('not part of the last duplicate scan')
-  })
-
-  it('rejects removing every copy of a group', () => {
-    expect(() => validateDupRemoval(groups, [w('b', 'x.pdf'), w('b', 'y.pdf')])).toThrow('at least one copy')
-  })
-
-  it('rejects when there is no scan', () => {
-    expect(() => validateDupRemoval(null, [w('a', '2.jpg')])).toThrow('not part of the last duplicate scan')
-  })
-
+describe('findDuplicates across several folders', () => {
   it('findDuplicates does not enter excluded folders', async () => {
     const d = await tmpDir()
     await write(path.join(d, 'a.bin'), big(1))
     await write(path.join(d, 'private', 'a-copy.bin'), big(1))
     expect(await findDuplicates(d, { minSize: 1, exclusions: [path.join(d, 'private')] })).toEqual([])
+  })
+
+  it('scans several folders and finds copies across them', async () => {
+    const d = await tmpDir()
+    const a = await write(path.join(d, 'Desktop', 'photo.jpg'), big(7))
+    const b = await write(path.join(d, 'Downloads', 'photo (1).jpg'), big(7))
+    const groups = await findDuplicates([path.join(d, 'Desktop'), path.join(d, 'Downloads')], { minSize: 1 })
+    expect(groups).toHaveLength(1)
+    expect(groups[0].files.map((f) => f.path).sort()).toEqual([a, b].sort())
+  })
+
+  it('never reports a file as a copy of itself when folders overlap', async () => {
+    const d = await tmpDir()
+    await write(path.join(d, 'Documents', 'Desktop', 'only.bin'), big(3))
+    const docs = path.join(d, 'Documents')
+    expect(await findDuplicates([docs, path.join(docs, 'Desktop'), docs.toUpperCase()], { minSize: 1 })).toEqual([])
+  })
+
+  it('skips folders that do not exist', async () => {
+    const d = await tmpDir()
+    await write(path.join(d, 'a', 'x'), big(1))
+    await write(path.join(d, 'a', 'y'), big(1))
+    expect(await findDuplicates([path.join(d, 'missing'), path.join(d, 'a')], { minSize: 1 })).toHaveLength(1)
+  })
+
+  it('leaves developer and hidden folders alone', async () => {
+    const d = await tmpDir()
+    await write(path.join(d, 'app', 'node_modules', 'pkg', 'LICENSE'), big(4))
+    await write(path.join(d, 'other', 'node_modules', 'pkg', 'LICENSE'), big(4))
+    await write(path.join(d, 'repo', '.git', 'objects', 'aa'), big(5))
+    await write(path.join(d, 'repo2', '.git', 'objects', 'aa'), big(5))
+    await write(path.join(d, 'py', '__pycache__', 'm.pyc'), big(6))
+    await write(path.join(d, 'py2', '__pycache__', 'm.pyc'), big(6))
+    expect(await findDuplicates(d, { minSize: 1 })).toEqual([])
+  })
+})
+
+describe('pickDuplicateRemovals', () => {
+  const f = (p: string, mtimeMs: number) => ({ path: p, size: 10, mtimeMs })
+
+  it('keeps the oldest copy of each group and removes the rest', () => {
+    const groups = [
+      { hash: 'a', size: 10, files: [f('C:\\new.jpg', 300), f('C:\\old.jpg', 100), f('C:\\mid.jpg', 200)] },
+      { hash: 'b', size: 10, files: [f('C:\\x.pdf', 5), f('C:\\y.pdf', 9)] }
+    ]
+    expect(pickDuplicateRemovals(groups).sort()).toEqual(['C:\\mid.jpg', 'C:\\new.jpg', 'C:\\y.pdf'])
+  })
+
+  it('breaks a tie on age by keeping the shorter path', () => {
+    const groups = [{ hash: 'a', size: 10, files: [f('C:\\Downloads\\copy of a.jpg', 1), f('C:\\a.jpg', 1)] }]
+    expect(pickDuplicateRemovals(groups)).toEqual(['C:\\Downloads\\copy of a.jpg'])
+  })
+
+  it('returns nothing for no groups', () => {
+    expect(pickDuplicateRemovals([])).toEqual([])
   })
 })

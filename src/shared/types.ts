@@ -79,6 +79,10 @@ export interface Settings {
   lastAutoClean?: number
   organizerCategories?: Record<string, string[]>
   organizeMode: 'type' | 'date'
+  /** Folders the one-click Organizer tidies; unset means the Desktop. */
+  organizeFolders?: string[]
+  /** Folders the one-click duplicate remover checks; unset means the standard user folders. */
+  duplicateFolders?: string[]
 }
 
 export interface DupGroup {
@@ -144,12 +148,14 @@ export interface TidyApi {
   isFolder(p: string): R<boolean>
   /** Local path of a file or folder dropped onto the window. */
   pathForFile(file: File): string
-  organizePlan(dir: string): R<Move[]>
-  organizeApply(dir: string, moves: Move[]): R<HistoryEntry>
+  /** Folders the one-click Organizer and duplicate remover use. */
+  autoFolders(): R<{ organize: string[]; duplicates: string[] }>
+  /** Organizes the given folders, or the configured ones; one entry per folder that changed. */
+  organizeAuto(dirs?: string[]): R<{ entries: HistoryEntry[]; errors: { dir: string; error: string }[] }>
   organizeUndo(id: string): R<HistoryEntry>
-  dupScan(dir: string): R<DupGroup[]>
+  /** Finds duplicates and moves every copy but the oldest to the Safe Bin; null when none. */
+  dupAuto(dirs?: string[]): R<HistoryEntry | null>
   dupCancel(): R<void>
-  dupRemove(paths: string[]): R<HistoryEntry>
   largeScan(dir: string): R<FileInfo[]>
   largeCancel(): R<void>
   largeRemove(paths: string[]): R<HistoryEntry>

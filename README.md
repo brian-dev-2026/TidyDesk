@@ -19,13 +19,13 @@ Everything TidyDesk removes waits in a restorable **Safe Bin** first, and every 
 - **Junk Cleaner**: finds user and Windows temp files, browser caches (Chrome, Edge, Brave, Firefox), Explorer thumbnail caches, and crash dumps. Shows how much each one takes up, and lets you pick what to clean.
   - Files changed in the last hour are always skipped.
   - Caches of a browser that is open are skipped too.
-- **Organizer**: sorts the loose files in a folder into `Images`, `Documents`, `Spreadsheets`, `Presentations`, `Videos`, `Music`, `Archives`, `Installers`, `Code` and `Other`.
-  - You see a preview first and can untick any file.
-  - Subfolders are never touched.
+- **Organizer**: one click on **Organize Desktop** sorts the loose files into `Images`, `Documents`, `Spreadsheets`, `Presentations`, `Videos`, `Music`, `Archives`, `Installers`, `Code` and `Other` (or into year / month folders).
+  - Add more folders, or drop any folder on the page to organize it once.
+  - Shortcuts and subfolders are never touched.
   - **Undo** puts every file back exactly where it was.
-- **Duplicate Finder**: finds files with **byte-for-byte identical content** (SHA-256), whatever their names.
-  - One copy in each group is always kept: the oldest, the newest or the shortest path, or one you pick yourself.
-  - Image groups show thumbnails.
+- **Duplicates**: one click on **Remove duplicates** checks Desktop, Documents, Downloads, Pictures, Music and Videos for files with **byte-for-byte identical content** (SHA-256), whatever their names.
+  - The oldest copy is kept; the others go to the Safe Bin, so you can restore them.
+  - Hidden and program folders such as `node_modules` are skipped.
 - **Dashboard**: shows disk usage, space held in the Safe Bin, space freed all-time, and a timeline of every action.
   - Open any entry to see each file it touched.
   - Restore single files or whole batches, undo organize runs, or delete permanently.

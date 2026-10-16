@@ -1,159 +1,154 @@
-import { useMemo, useState } from 'react'
-import { CheckCircle2, FlaskConical, FolderOpen, FolderTree, SlidersHorizontal, Undo2, Wand2 } from 'lucide-react'
-import type { HistoryEntry, Move } from '@shared/types'
+import { useEffect, useState } from 'react'
+import { CheckCircle2, FlaskConical, SlidersHorizontal, Undo2, Wand2 } from 'lucide-react'
+import type { HistoryEntry } from '@shared/types'
 import { call, tidy, toast, useSettings } from '../api'
-import { Badge, Button, Card, Checkbox, cx, Empty, PageHeader } from '../components/ui'
+import { Button, Card, cx, Empty, PageHeader } from '../components/ui'
 import { CategoryEditor } from '../components/CategoryEditor'
+import { DropZone } from '../components/DropZone'
+import { FolderList } from '../components/FolderList'
 
-function relativeTo(dir: string, p: string): string {
-  return p.toLowerCase().startsWith(dir.toLowerCase()) ? p.slice(dir.length).replace(/^[\\/]/, '') : p
-}
+const files = (n: number): string => `${n.toLocaleString()} file${n === 1 ? '' : 's'}`
 
 function basename(p: string): string {
-  return p.split(/[\\/]/).pop() ?? p
+  return p.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || p
 }
 
 export function OrganizerPage(): JSX.Element {
   const { settings, update } = useSettings()
   const [editing, setEditing] = useState(false)
-  const [dir, setDir] = useState<string | null>(null)
-  const [plan, setPlan] = useState<Move[] | null>(null)
-  const [excluded, setExcluded] = useState<Set<string>>(new Set())
-  const [busy, setBusy] = useState<'plan' | 'apply' | 'undo' | null>(null)
-  const [result, setResult] = useState<HistoryEntry | null>(null)
+  const [defaults, setDefaults] = useState<string[]>([])
+  const [busy, setBusy] = useState<string | null>(null)
+  const [results, setResults] = useState<HistoryEntry[] | null>(null)
 
-  const choose = async (): Promise<void> => {
-    const d = await call(tidy.pickFolder())
-    if (!d) return
-    setDir(d)
-    setResult(null)
-    setBusy('plan')
-    const p = await call(tidy.organizePlan(d))
+  useEffect(() => {
+    void call(tidy.autoFolders()).then((f) => f && setDefaults(f.organize))
+  }, [settings.organizeFolders])
+
+  const folders = settings.organizeFolders ?? defaults
+  const label = folders.length === 1 ? `Organize ${basename(folders[0])}` : `Organize ${folders.length} folders`
+
+  const run = async (dirs?: string[]): Promise<void> => {
+    setBusy('run')
+    setResults(null)
+    const r = await call(tidy.organizeAuto(dirs))
     setBusy(null)
-    setPlan(p ?? null)
-    setExcluded(new Set())
+    if (!r) return
+    setResults(r.entries)
+    for (const e of r.errors) toast.error(`${basename(e.dir)}: ${e.error}`)
+    const moved = r.entries.reduce((n, e) => n + e.count, 0)
+    if (moved && !r.entries[0].dryRun) toast.success(`Organized ${files(moved)}`)
   }
 
-  const chosen = useMemo(() => (plan ?? []).filter((m) => !excluded.has(m.from)), [plan, excluded])
-  const counts = useMemo(() => {
-    const c = new Map<string, number>()
-    for (const m of chosen) c.set(m.category, (c.get(m.category) ?? 0) + 1)
-    return [...c].sort((a, b) => b[1] - a[1])
-  }, [chosen])
-
-  const apply = async (): Promise<void> => {
-    if (!dir) return
-    setBusy('apply')
-    const e = await call(tidy.organizeApply(dir, chosen))
+  const undo = async (id: string): Promise<void> => {
+    setBusy(id)
+    const e = await call(tidy.organizeUndo(id))
     setBusy(null)
     if (e) {
-      setResult(e)
-      if (!e.dryRun) setPlan(null) // after a dry run the preview stays, ready to run for real
-      if (!e.dryRun) toast.success(`Organized ${e.count} files`)
-    }
-  }
-
-  const undo = async (): Promise<void> => {
-    if (!result) return
-    setBusy('undo')
-    const e = await call(tidy.organizeUndo(result.id))
-    setBusy(null)
-    if (e) {
-      setResult(e)
+      setResults((rs) => (rs ?? []).map((x) => (x.id === e.id ? e : x)))
       toast.success('Every file is back where it was')
     }
   }
 
   return (
-    <>
+    <DropZone onFolder={(d) => void run([d])}>
       <PageHeader
         title="Organizer"
-        subtitle="Sorts the files in a folder into Images, Documents, Videos and more. Subfolders are left alone."
-        actions={
-          <Button icon={<FolderOpen className="h-4 w-4" />} onClick={choose} loading={busy === 'plan'}>
-            {dir ? 'Choose another folder' : 'Choose folder'}
-          </Button>
-        }
+        subtitle="One click sorts the loose files in your folders into Images, Documents, Videos and more. Shortcuts and subfolders stay where they are."
       />
 
-      <div className="mb-5 flex flex-wrap items-center gap-3">
-        <span className="text-sm text-muted">Sort by</span>
-        <div className="flex items-center gap-1 rounded-xl border border-line bg-raised p-1" role="radiogroup" aria-label="Sort by">
-          {(
-            [
-              ['type', 'Type'],
-              ['date', 'Date (year / month)']
-            ] as const
-          ).map(([m, label]) => (
-            <button
-              key={m}
-              role="radio"
-              aria-checked={settings.organizeMode === m}
-              onClick={async () => {
-                await update({ organizeMode: m })
-                if (dir) {
-                  const p = await call(tidy.organizePlan(dir))
-                  if (p) setPlan(p)
-                }
-              }}
-              className={cx(
-                'h-8 rounded-lg px-3 text-xs font-medium transition',
-                settings.organizeMode === m ? 'bg-surface text-fg shadow-sm' : 'text-muted hover:text-fg'
-              )}
-            >
-              {label}
-            </button>
-          ))}
+      <Card className="mb-5">
+        <div className="flex flex-wrap items-center gap-4">
+          <div className="min-w-0 flex-1">
+            <div className="mb-2 text-sm font-medium">Folders to organize</div>
+            <FolderList
+              folders={folders}
+              custom={settings.organizeFolders !== undefined}
+              disabled={busy !== null}
+              onChange={(f) => void update({ organizeFolders: f as string[] })}
+            />
+          </div>
+          <Button
+            variant="primary"
+            className="h-11 px-6 text-base"
+            icon={<Wand2 className="h-5 w-5" />}
+            loading={busy === 'run'}
+            disabled={!folders.length || (busy !== null && busy !== 'run')}
+            onClick={() => void run()}
+          >
+            {settings.dryRun ? `Simulate: ${label}` : label}
+          </Button>
         </div>
-        {settings.organizeMode === 'type' && (
-          <Button className="h-8 px-3 text-xs" icon={<SlidersHorizontal className="h-3.5 w-3.5" />} onClick={() => setEditing(true)}>
-            Customize categories
-          </Button>
-        )}
-      </div>
-      <CategoryEditor
-        open={editing}
-        onClose={async () => {
-          setEditing(false)
-          if (dir) {
-            const p = await call(tidy.organizePlan(dir))
-            if (p) setPlan(p)
-          }
-        }}
-      />
+        <div className="mt-4 flex flex-wrap items-center gap-3 border-t border-line pt-4">
+          <span className="text-sm text-muted">Sort by</span>
+          <div className="flex items-center gap-1 rounded-xl border border-line bg-raised p-1" role="radiogroup" aria-label="Sort by">
+            {(
+              [
+                ['type', 'Type'],
+                ['date', 'Date (year / month)']
+              ] as const
+            ).map(([m, text]) => (
+              <button
+                key={m}
+                role="radio"
+                aria-checked={settings.organizeMode === m}
+                onClick={() => void update({ organizeMode: m })}
+                className={cx(
+                  'h-8 rounded-lg px-3 text-xs font-medium transition',
+                  settings.organizeMode === m ? 'bg-surface text-fg shadow-sm' : 'text-muted hover:text-fg'
+                )}
+              >
+                {text}
+              </button>
+            ))}
+          </div>
+          {settings.organizeMode === 'type' && (
+            <Button className="h-8 px-3 text-xs" icon={<SlidersHorizontal className="h-3.5 w-3.5" />} onClick={() => setEditing(true)}>
+              Customize categories
+            </Button>
+          )}
+          <span className="text-xs text-muted">Tip: drop any folder here to organize it once.</span>
+        </div>
+      </Card>
+      <CategoryEditor open={editing} onClose={() => setEditing(false)} />
 
-      {result && (
-        <Card className={result.dryRun ? 'mb-5 border-amber-500/30 bg-amber-500/5' : 'mb-5'}>
+      {results && results.length === 0 && (
+        <Card>
+          <Empty icon={<CheckCircle2 className="h-5 w-5" />} title="Already tidy">
+            There were no loose files to sort.
+          </Empty>
+        </Card>
+      )}
+
+      {results?.map((r) => (
+        <Card key={r.id} className={r.dryRun ? 'mb-3 border-amber-500/30 bg-amber-500/5' : 'mb-3'}>
           <div className="flex items-center gap-4">
             <div
               className={
-                result.dryRun
+                r.dryRun
                   ? 'flex h-11 w-11 items-center justify-center rounded-xl bg-amber-500/15 text-amber-500'
                   : 'flex h-11 w-11 items-center justify-center rounded-xl bg-emerald-500/15 text-emerald-500'
               }
             >
-              {result.dryRun ? <FlaskConical className="h-5 w-5" /> : <CheckCircle2 className="h-5 w-5" />}
+              {r.dryRun ? <FlaskConical className="h-5 w-5" /> : <CheckCircle2 className="h-5 w-5" />}
             </div>
             <div className="flex-1">
               <div className="font-semibold">
-                {result.dryRun
-                  ? `Dry run — ${result.count} files would be moved. Nothing was changed.`
-                  : result.status === 'undone'
-                    ? 'Undone — every file is back in its original place'
-                    : `Moved ${result.count} files`}
+                {r.dryRun
+                  ? `${r.title.replace(/^Organized /, '')}: ${files(r.count)} would be moved. Nothing was changed.`
+                  : r.status === 'undone'
+                    ? `${r.title.replace(/^Organized /, '')}: undone — every file is back in its place`
+                    : `${r.title} — moved ${files(r.count)}`}
               </div>
-              {!result.dryRun && result.skipped > 0 && (
-                <div className="text-sm text-muted">{result.skipped} files could not be moved (in use) and were left in place.</div>
+              {!r.dryRun && r.skipped > 0 && (
+                <div className="text-sm text-muted">{files(r.skipped)} could not be moved (in use) and were left in place.</div>
               )}
-              {!result.dryRun && result.status === 'applied' && (
-                <div className="text-sm text-muted">You can also undo this later from the Dashboard.</div>
-              )}
+              {!r.dryRun && r.status === 'applied' && <div className="text-sm text-muted">You can also undo this later from the Dashboard.</div>}
             </div>
-            {!result.dryRun && result.status === 'applied' && (
+            {!r.dryRun && r.status === 'applied' && (
               <Button
                 icon={<Undo2 className="h-4 w-4" />}
-                loading={busy === 'undo'}
-                onClick={undo}
+                loading={busy === r.id}
+                onClick={() => void undo(r.id)}
                 disabled={settings.dryRun}
                 title={settings.dryRun ? 'Turn off Dry run to change files' : undefined}
               >
@@ -162,90 +157,7 @@ export function OrganizerPage(): JSX.Element {
             )}
           </div>
         </Card>
-      )}
-
-      {!dir && (
-        <Card>
-          <Empty icon={<FolderTree className="h-5 w-5" />} title="Pick a folder to tidy">
-            Downloads and Desktop are good places to start. You will see a preview before anything moves.
-          </Empty>
-        </Card>
-      )}
-
-      {dir && plan && (
-        <Card
-          title={<span className="selectable">{dir}</span>}
-          subtitle={plan.length ? `${chosen.length} of ${plan.length} files selected` : undefined}
-          actions={
-            plan.length > 0 && (
-              <Button variant="primary" icon={<Wand2 className="h-4 w-4" />} loading={busy === 'apply'} disabled={!chosen.length} onClick={apply}>
-                {settings.dryRun ? `Simulate organizing ${chosen.length} files` : `Organize ${chosen.length} files`}
-              </Button>
-            )
-          }
-        >
-          {plan.length === 0 ? (
-            <Empty icon={<CheckCircle2 className="h-5 w-5" />} title="Already tidy">
-              There are no loose files at the top of this folder.
-            </Empty>
-          ) : (
-            <>
-              <div className="mb-4 flex flex-wrap gap-2">
-                {counts.map(([cat, n]) => (
-                  <Badge key={cat} tone="accent">
-                    {cat} · {n}
-                  </Badge>
-                ))}
-              </div>
-              <div className="max-h-[420px] overflow-y-auto rounded-xl border border-line">
-                <table className="w-full text-sm">
-                  <thead className="sticky top-0 bg-raised text-left text-xs text-muted">
-                    <tr>
-                      <th className="w-10 px-3 py-2">
-                        <Checkbox
-                          label="Select all"
-                          checked={excluded.size === 0}
-                          onChange={(v) => setExcluded(v ? new Set() : new Set(plan.map((m) => m.from)))}
-                        />
-                      </th>
-                      <th className="px-3 py-2 font-medium">File</th>
-                      <th className="px-3 py-2 font-medium">Category</th>
-                      <th className="px-3 py-2 font-medium">Moves to</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-line">
-                    {plan.map((m) => (
-                      <tr key={m.from} className={excluded.has(m.from) ? 'opacity-50' : ''}>
-                        <td className="px-3 py-2">
-                          <Checkbox
-                            label={basename(m.from)}
-                            checked={!excluded.has(m.from)}
-                            onChange={(v) =>
-                              setExcluded((s) => {
-                                const n = new Set(s)
-                                if (v) n.delete(m.from)
-                                else n.add(m.from)
-                                return n
-                              })
-                            }
-                          />
-                        </td>
-                        <td className="max-w-[260px] truncate px-3 py-2" title={m.from}>
-                          {basename(m.from)}
-                        </td>
-                        <td className="px-3 py-2 text-muted">{m.category}</td>
-                        <td className="max-w-[260px] truncate px-3 py-2 text-muted" title={m.to}>
-                          {relativeTo(dir, m.to)}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </>
-          )}
-        </Card>
-      )}
-    </>
+      ))}
+    </DropZone>
   )
 }
