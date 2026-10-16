@@ -11,6 +11,7 @@ import { OrganizerPage } from './pages/Organizer'
 import { DuplicatesPage } from './pages/Duplicates'
 import { SettingsPage } from './pages/Settings'
 import { LargeFilesPage } from './pages/LargeFiles'
+import { EmptyFoldersPage } from './pages/EmptyFolders'
 
 function useTheme(theme: Settings['theme'] | undefined): void {
   useEffect(() => {
@@ -57,6 +58,7 @@ export function App(): JSX.Element {
               {page === 'organizer' && <OrganizerPage />}
               {page === 'duplicates' && <DuplicatesPage />}
               {page === 'large' && <LargeFilesPage />}
+              {page === 'empty' && <EmptyFoldersPage />}
               {page === 'settings' && <SettingsPage />}
             </div>
           </main>

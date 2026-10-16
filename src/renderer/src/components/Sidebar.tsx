@@ -10,6 +10,7 @@ const NAV: { id: Page; label: string; icon: typeof Copy }[] = [
   { id: 'organizer', label: 'Organizer', icon: FolderTree },
   { id: 'duplicates', label: 'Duplicates', icon: Copy },
   { id: 'large', label: 'Large Files', icon: HardDrive },
+  { id: 'empty', label: 'Empty Folders', icon: FolderX },
   { id: 'settings', label: 'Settings', icon: Settings }
 ]
 

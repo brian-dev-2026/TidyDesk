@@ -58,6 +58,8 @@ export interface HistoryEntry {
   items?: BinItem[]
   moves?: Move[]
   createdDirs?: string[]
+  /** Folders removed by an empty-folders action. */
+  folders?: string[]
   itemsFile?: string
 }
 
@@ -141,6 +143,9 @@ export interface TidyApi {
   largeScan(dir: string): R<FileInfo[]>
   largeCancel(): R<void>
   largeRemove(paths: string[]): R<HistoryEntry>
+  emptyScan(dir: string): R<string[]>
+  emptyRemove(paths: string[]): R<HistoryEntry>
+  emptyRestore(id: string): R<HistoryEntry>
   history(): R<HistoryEntry[]>
   historyEntry(id: string): R<HistoryEntry>
   restore(id: string, paths?: string[]): R<HistoryEntry>

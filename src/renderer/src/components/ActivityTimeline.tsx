@@ -97,20 +97,29 @@ function TimelineRow({ entry: e }: { entry: HistoryEntry }): JSX.Element {
   const badge = statusBadge(e)
   const held = e.status === 'held' || e.status === 'partial'
 
-  const act = async (kind: 'restore' | 'purge' | 'undo'): Promise<void> => {
+  const act = async (kind: 'restore' | 'purge' | 'undo' | 'folders'): Promise<void> => {
     setBusy(kind)
     const r = await call(
-      kind === 'restore' ? tidy.restore(e.id) : kind === 'purge' ? tidy.purgeNow(e.id) : tidy.organizeUndo(e.id)
+      kind === 'restore'
+        ? tidy.restore(e.id)
+        : kind === 'purge'
+          ? tidy.purgeNow(e.id)
+          : kind === 'folders'
+            ? tidy.emptyRestore(e.id)
+            : tidy.organizeUndo(e.id)
     )
     setBusy(null)
     if (!r) return
     if (kind === 'restore') announceRestore(r)
     else if (kind === 'purge') announcePurge(r)
+    else if (kind === 'folders') toast.success(`Recreated ${r.count} folders`)
     else toast.success('Organize undone — every file is back where it was')
   }
 
   const summary =
-    e.type === 'organize'
+    e.type === 'empty-folders'
+      ? `${e.count.toLocaleString()} folder${e.count === 1 ? '' : 's'}${e.status === 'simulated' ? ' would be removed' : ''}`
+      : e.type === 'organize'
       ? `${e.count.toLocaleString()} file${e.count === 1 ? '' : 's'} ${e.status === 'simulated' ? 'would move' : 'moved'}`
       : `${e.count.toLocaleString()} item${e.count === 1 ? '' : 's'} · ${formatBytes(e.bytes)}`
 
@@ -159,6 +168,11 @@ function TimelineRow({ entry: e }: { entry: HistoryEntry }): JSX.Element {
                 Delete now
               </Button>
             </>
+          )}
+          {e.type === 'empty-folders' && e.status === 'done' && e.count > 0 && (
+            <Button {...lock} icon={<Undo2 className="h-3.5 w-3.5" />} loading={busy === 'folders'} onClick={() => act('folders')} className="h-8 px-3 text-xs">
+              Restore folders
+            </Button>
           )}
           {e.type === 'organize' && e.status === 'applied' && (
             <Button {...lock} icon={<Undo2 className="h-3.5 w-3.5" />} loading={busy === 'undo'} onClick={() => act('undo')} className="h-8 px-3 text-xs">
@@ -217,7 +231,8 @@ function EntryDetails({ id, version }: { id: string; version: string }): JSX.Ele
 
   const items = full.items ?? []
   const moves = full.moves ?? []
-  const total = items.length || moves.length
+  const folders = full.folders ?? []
+  const total = items.length || moves.length || folders.length
   return (
     <div className="border-t border-line px-3 py-2">
       <ul className="selectable max-h-80 overflow-y-auto text-xs">
@@ -273,6 +288,16 @@ function EntryDetails({ id, version }: { id: string; version: string }): JSX.Ele
             >
               <FolderOpen className="h-3.5 w-3.5" />
             </button>
+          </li>
+        ))}
+        {folders.slice(0, SHOWN).map((f) => (
+          <li key={f} className="flex items-center gap-3 rounded-lg px-1 py-1.5 hover:bg-raised/60">
+            <Badge tone={full.status === 'simulated' ? 'warning' : full.status === 'restored' ? 'success' : 'neutral'}>
+              {full.status === 'simulated' ? 'Would remove' : full.status === 'restored' ? 'Recreated' : 'Removed'}
+            </Badge>
+            <div className="min-w-0 flex-1 truncate" title={f}>
+              {f}
+            </div>
           </li>
         ))}
       </ul>

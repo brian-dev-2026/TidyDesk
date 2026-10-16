@@ -13,6 +13,7 @@ import { applyOrganize, planOrganize, undoOrganize } from './organizer'
 import { findDuplicates, validateDupRemoval } from './duplicates'
 import { getLog } from './logger'
 import { findLargeFiles } from './largefiles'
+import { findEmptyFolders, removeEmptyFolders, restoreEmptyFolders } from './emptyfolders'
 import type { DupGroup } from '@shared/types'
 
 export interface IpcDeps {
@@ -31,6 +32,7 @@ export function registerIpc(deps: IpcDeps): { notifyHistoryChanged: () => void }
   let lastDupGroups: DupGroup[] | null = null
   let largeAbort: AbortController | null = null
   let lastLarge: Set<string> | null = null
+  let lastEmpty: Set<string> | null = null
 
   /** Only the app's own page may call the API (not a file dropped onto the window). */
   const trusted = (url: string | undefined): boolean => {
@@ -235,6 +237,29 @@ export function registerIpc(deps: IpcDeps): { notifyHistoryChanged: () => void }
     )
     if (!dryRun) for (const p of paths) lastLarge?.delete(p.toLowerCase())
     return strip(entry)
+  })
+
+  handle('emptyScan', async (dir: string) => {
+    const { exclusions } = await settings.get()
+    lastEmpty = null
+    const found = await findEmptyFolders(dir, { exclusions })
+    lastEmpty = new Set(found.map((p) => p.toLowerCase()))
+    return found
+  })
+
+  handle('emptyRemove', async (paths: string[]) => {
+    if (!paths.length) throw new Error('No folders selected')
+    const unknown = paths.find((p) => !lastEmpty?.has(p.toLowerCase()))
+    if (unknown) throw new Error(`${unknown} is not part of the last scan — scan again first`)
+    const { dryRun, exclusions } = await settings.get()
+    const entry = await withChange(removeEmptyFolders(paths, history, { dryRun, exclusions }))
+    if (!dryRun) lastEmpty = null
+    return strip(entry)
+  })
+
+  handle('emptyRestore', async (id: string) => {
+    const { dryRun } = await settings.get()
+    return strip(await withChange(restoreEmptyFolders(id, history, { dryRun })))
   })
 
   handle('history', () => history.list())
