@@ -5,6 +5,7 @@ import { execFile } from 'child_process'
 import type { BinItem, EntryStatus, HistoryEntry, Orphan } from '@shared/types'
 import type { HistoryStore } from './history'
 import { BIN_DIR_NAME } from './guards'
+import { getLog } from './logger'
 import { dirSize, mapLimit, moveFile, uniquePath } from './fsutil'
 
 export interface SafeBinOpts {
@@ -290,7 +291,7 @@ export class SafeBin {
         await this.purge(e.id)
         n++
       } catch (err) {
-        console.error(`Could not purge batch ${e.id}`, err) // leave it held; retried next tick
+        getLog().error(`Could not purge batch ${e.id}`, err) // leave it held; retried next tick
       }
     }
     return n

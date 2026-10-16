@@ -11,6 +11,7 @@ import { junkCategories, runningBrowsers, scanJunk } from './junk'
 import { emptyRecycleBin, recycleBinInfo } from './recyclebin'
 import { applyOrganize, planOrganize, undoOrganize } from './organizer'
 import { findDuplicates, validateDupRemoval } from './duplicates'
+import { getLog } from './logger'
 import type { DupGroup } from '@shared/types'
 
 export interface IpcDeps {
@@ -59,7 +60,7 @@ export function registerIpc(deps: IpcDeps): { notifyHistoryChanged: () => void }
       try {
         return { ok: true, data: await fn(...(args as A)) }
       } catch (e) {
-        console.error(`[ipc] ${name}`, e)
+        getLog().error(`[ipc] ${name} failed`, e)
         return { ok: false, error: (e as Error).message || String(e) }
       }
     })
@@ -249,6 +250,10 @@ export function registerIpc(deps: IpcDeps): { notifyHistoryChanged: () => void }
   })
 
   handle('appVersion', () => app.getVersion())
+
+  handle('logRenderer', (message: string) => {
+    getLog().error(`[renderer] ${String(message).slice(0, 4000)}`)
+  })
 
   ipcMain.on('win', (_e, action: string) => {
     const w = deps.getWindow()

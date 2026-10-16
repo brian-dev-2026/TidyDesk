@@ -7,6 +7,7 @@ import { startScheduler } from './scheduler'
 import { sweepRecycleBin } from './recyclebin'
 import { registerIpc } from './ipc'
 import { createTray, iconPath } from './tray'
+import { getLog, installProcessHandlers, Logger, setLog } from './logger'
 
 let win: BrowserWindow | null = null
 let tray: Tray | null = null
@@ -36,6 +37,10 @@ function quit(): void {
 
 async function start(): Promise<void> {
   app.setAppUserModelId('com.tidydesk.app')
+  const logger = new Logger(join(app.getPath('userData'), 'logs'))
+  setLog(logger)
+  installProcessHandlers(logger)
+  logger.info(`TidyDesk ${app.getVersion()} starting`)
   // Electron's default menu stays active (though hidden) in a frameless window, and its shortcuts
   // let a stray Ctrl+R reload the page mid-task or Ctrl+W close the window. TidyDesk has no menu.
   Menu.setApplicationMenu(null)
@@ -89,9 +94,8 @@ async function start(): Promise<void> {
   // dropping a file on the window would otherwise navigate to it with the preload attached
   win.webContents.on('will-navigate', (e) => e.preventDefault())
   win.webContents.on('render-process-gone', (_e, details) => {
-    console.error('Renderer process gone', details)
+    getLog().error(`Renderer process gone: ${details.reason} (exit ${details.exitCode})`)
   })
-  win.on('closed', () => console.error('Window closed'))
 
   if (process.env.ELECTRON_RENDERER_URL) await win.loadURL(process.env.ELECTRON_RENDERER_URL)
   else await win.loadFile(join(__dirname, '../renderer/index.html'))

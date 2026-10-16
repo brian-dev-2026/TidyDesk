@@ -31,7 +31,8 @@ const channels = [
   'setSettings',
   'thumbnail',
   'showInFolder',
-  'appVersion'
+  'appVersion',
+  'logRenderer'
 ] as const
 
 const api = {

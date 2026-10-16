@@ -1,5 +1,6 @@
 import type { RecycleInfo, Settings } from '@shared/types'
 import type { HistoryStore } from './history'
+import { getLog } from './logger'
 
 export interface SchedulerDeps {
   safeBin: { purgeExpired(): Promise<number> }
@@ -26,7 +27,7 @@ export function startScheduler(deps: SchedulerDeps): { stop(): void; tick(): Pro
       try {
         changed = (await deps.safeBin.purgeExpired()) > 0
       } catch (e) {
-        console.error('Safe Bin purge failed', e)
+        getLog().error('Safe Bin purge failed', e)
       }
       // the purge can take a while; respect dry run if it was switched on meanwhile
       if (s.sweepWindowsRecycleBin && !(await deps.settings.get()).dryRun) {
@@ -46,11 +47,11 @@ export function startScheduler(deps: SchedulerDeps): { stop(): void; tick(): Pro
             changed = true
           }
         } catch (e) {
-          console.error('Recycle Bin sweep failed', e)
+          getLog().error('Recycle Bin sweep failed', e)
         }
       }
     } catch (e) {
-      console.error('Scheduler tick failed', e)
+      getLog().error('Scheduler tick failed', e)
     } finally {
       running = false
       if (changed) deps.onChange()

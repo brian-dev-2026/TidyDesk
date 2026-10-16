@@ -143,6 +143,7 @@ export interface TidyApi {
   thumbnail(path: string): R<string | null>
   showInFolder(path: string): R<void>
   appVersion(): R<string>
+  logRenderer(message: string): R<void>
   onProgress(cb: (p: Progress) => void): () => void
   onHistoryChanged(cb: () => void): () => void
   win: { minimize(): void; maximize(): void; close(): void }
