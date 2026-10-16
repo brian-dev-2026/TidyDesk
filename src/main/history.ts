@@ -5,6 +5,7 @@ import type { HistoryEntry } from '@shared/types'
 
 const MAX_ENTRIES = 500
 const SIDECAR_THRESHOLD = 2000
+let idCounter = 0
 
 interface Detail {
   items?: HistoryEntry['items']
@@ -27,7 +28,8 @@ export class HistoryStore {
   }
 
   newId(): string {
-    return `${Date.now().toString(36)}-${randomBytes(2).toString('hex')}`
+    idCounter = (idCounter + 1) % 1296
+    return `${Date.now().toString(36)}-${idCounter.toString(36).padStart(2, '0')}${randomBytes(3).toString('hex')}`
   }
 
   /** Serialise every operation so writes never interleave. */
