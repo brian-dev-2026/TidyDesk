@@ -1,0 +1,138 @@
+import { describe, it, expect } from 'vitest'
+import fs from 'fs/promises'
+import path from 'path'
+import { planOrganize, applyOrganize, undoOrganize } from '../../src/main/organizer'
+import { HistoryStore } from '../../src/main/history'
+import { tmpDir, write, exists, snapshot } from '../helpers/tmp'
+
+async function setup() {
+  const root = await tmpDir()
+  const dir = path.join(root, 'Downloads')
+  await fs.mkdir(dir)
+  return { dir, history: new HistoryStore(path.join(root, 'data')) }
+}
+
+const rel = (dir: string, p: string) => path.relative(dir, p)
+
+describe('organizer', () => {
+  it('plans by extension', async () => {
+    const { dir } = await setup()
+    await write(path.join(dir, 'a.JPG'))
+    await write(path.join(dir, 'b.pdf'))
+    await write(path.join(dir, 'c.xyz'))
+    await write(path.join(dir, 'noext'))
+    const plan = await planOrganize(dir)
+    const byName = Object.fromEntries(plan.map((m) => [path.basename(m.from), m]))
+    expect(byName['a.JPG'].category).toBe('Images')
+    expect(rel(dir, byName['a.JPG'].to)).toBe(path.join('Images', 'a.JPG'))
+    expect(byName['b.pdf'].category).toBe('Documents')
+    expect(byName['c.xyz'].category).toBe('Other')
+    expect(byName['noext'].category).toBe('Other')
+  })
+
+  it('ignores subfolders and hidden files', async () => {
+    const { dir } = await setup()
+    await write(path.join(dir, 'sub', 'deep.png'))
+    await write(path.join(dir, '.hidden.png'))
+    await write(path.join(dir, 'desktop.ini'))
+    await write(path.join(dir, 'Thumbs.db'))
+    await write(path.join(dir, 'top.png'))
+    const plan = await planOrganize(dir)
+    expect(plan.map((m) => path.basename(m.from))).toEqual(['top.png'])
+  })
+
+  it('skips files named like a category folder', async () => {
+    const { dir } = await setup()
+    await write(path.join(dir, 'Images'))
+    await write(path.join(dir, 'ok.png'))
+    const plan = await planOrganize(dir)
+    expect(plan.map((m) => path.basename(m.from))).toEqual(['ok.png'])
+    // the "Images" name is taken by a file, so images go to a free folder name instead
+    expect(rel(dir, plan[0].to)).toBe(path.join('Images (1)', 'ok.png'))
+  })
+
+  it('collision gets (1)', async () => {
+    const { dir } = await setup()
+    await write(path.join(dir, 'Images', 'a.jpg'), 'existing')
+    await write(path.join(dir, 'a.jpg'), 'new')
+    const [m] = await planOrganize(dir)
+    expect(rel(dir, m.to)).toBe(path.join('Images', 'a (1).jpg'))
+  })
+
+  it('two planned files with same target name get unique targets', async () => {
+    const { dir } = await setup()
+    await write(path.join(dir, 'Images', 'a (1).jpg'))
+    await write(path.join(dir, 'Images', 'a.jpg'))
+    await write(path.join(dir, 'a.jpg'))
+    await write(path.join(dir, 'a (1).jpg'))
+    const plan = await planOrganize(dir)
+    const targets = plan.map((m) => m.to.toLowerCase())
+    expect(new Set(targets).size).toBe(2)
+  })
+
+  it('refuses protected folder', async () => {
+    await expect(planOrganize('C:\\Windows')).rejects.toThrow('Protected folder')
+  })
+
+  it('apply then undo round-trip restores exact layout and removes created dirs', async () => {
+    const { dir, history } = await setup()
+    await write(path.join(dir, 'a.jpg'), 'A')
+    await write(path.join(dir, 'b.pdf'), 'B')
+    await write(path.join(dir, 'sub', 'keep.txt'), 'K')
+    const before = await snapshot(dir)
+    const plan = await planOrganize(dir)
+    const e = await applyOrganize(dir, plan, history)
+    expect(e.type).toBe('organize')
+    expect(e.status).toBe('applied')
+    expect(e.title).toBe('Organized Downloads')
+    expect(e.count).toBe(2)
+    expect(await exists(path.join(dir, 'Images', 'a.jpg'))).toBe(true)
+    expect(await exists(path.join(dir, 'a.jpg'))).toBe(false)
+    const u = await undoOrganize(e.id, history)
+    expect(u.status).toBe('undone')
+    expect(await snapshot(dir)).toEqual(before)
+  })
+
+  it('undo keeps pre-existing category folders', async () => {
+    const { dir, history } = await setup()
+    await fs.mkdir(path.join(dir, 'Images'))
+    await write(path.join(dir, 'a.jpg'))
+    const e = await applyOrganize(dir, await planOrganize(dir), history)
+    await undoOrganize(e.id, history)
+    expect(await exists(path.join(dir, 'Images'))).toBe(true)
+  })
+
+  it('apply with a vanished file counts it as skipped', async () => {
+    const { dir, history } = await setup()
+    await write(path.join(dir, 'a.jpg'))
+    await write(path.join(dir, 'b.jpg'))
+    const plan = await planOrganize(dir)
+    await fs.rm(path.join(dir, 'b.jpg'))
+    const e = await applyOrganize(dir, plan, history)
+    expect(e.count).toBe(1)
+    expect(e.skipped).toBe(1)
+  })
+
+  it('apply rejects moves outside the folder', async () => {
+    const { dir, history } = await setup()
+    const outside = await write(path.join(dir, '..', 'outside.txt'))
+    await expect(
+      applyOrganize(dir, [{ from: outside, to: path.join(dir, 'Other', 'outside.txt'), category: 'Other' }], history)
+    ).rejects.toThrow('Invalid move')
+    expect(await exists(outside)).toBe(true)
+  })
+
+  it('dry run apply changes nothing', async () => {
+    const { dir, history } = await setup()
+    await write(path.join(dir, 'a.jpg'), 'A')
+    await write(path.join(dir, 'b.pdf'), 'B')
+    const before = await snapshot(dir)
+    const e = await applyOrganize(dir, await planOrganize(dir), history, { dryRun: true })
+    expect(await snapshot(dir)).toEqual(before)
+    expect(e.status).toBe('simulated')
+    expect(e.dryRun).toBe(true)
+    expect(e.count).toBe(2)
+    expect((await history.get(e.id))!.moves).toHaveLength(2)
+    await expect(undoOrganize(e.id, history)).rejects.toThrow('Dry run entry')
+  })
+})
