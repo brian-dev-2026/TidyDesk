@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import fs from 'fs/promises'
 import path from 'path'
-import { findDuplicates, pickDuplicateRemovals } from '../../src/main/duplicates'
+import { findDuplicates, planDuplicateRemovals, recheckRemovals, usableRoots, USER_CONTENT_EXTENSIONS } from '../../src/main/duplicates'
 import { tmpDir, write } from '../helpers/tmp'
 
 const big = (fill: number, size = 4096) => Buffer.alloc(size, fill)
@@ -142,23 +142,127 @@ describe('findDuplicates across several folders', () => {
   })
 })
 
-describe('pickDuplicateRemovals', () => {
+describe('automatic duplicate safety', () => {
+  it('only compares user files when given the user-content extensions', async () => {
+    const d = await tmpDir()
+    await write(path.join(d, 'a', 'pip.exe'), big(1))
+    await write(path.join(d, 'b', 'pip3.exe'), big(1))
+    await write(path.join(d, 'a', 'lib.dll'), big(2))
+    await write(path.join(d, 'b', 'lib.dll'), big(2))
+    await write(path.join(d, 'a', 'Trip.PDF'), big(3))
+    await write(path.join(d, 'b', 'Trip (1).pdf'), big(3))
+    const groups = await findDuplicates(d, { minSize: 1, extensions: USER_CONTENT_EXTENSIONS })
+    expect(groups.map((g) => g.files.map((f) => path.basename(f.path)).sort())).toEqual([['Trip (1).pdf', 'Trip.PDF']])
+  })
+
+  it.each([
+    ['a .git folder', '.git', 'HEAD'],
+    ['a Python venv', 'pyvenv.cfg', null],
+    ['a package.json', 'package.json', null],
+    ['a Visual Studio project', 'App.csproj', null],
+    ['a Cargo.toml', 'Cargo.toml', null]
+  ])('skips a project folder marked by %s', async (_label, marker, inner) => {
+    const d = await tmpDir()
+    for (const p of ['p1', 'p2']) {
+      await write(inner ? path.join(d, p, marker, inner) : path.join(d, p, marker), '{}')
+      await write(path.join(d, p, 'assets', 'logo.png'), big(8))
+    }
+    expect(await findDuplicates(d, { minSize: 1 })).toEqual([])
+  })
+
+  it.each(['bin', 'obj', 'venv', 'AppData', 'My Games', 'WindowsPowerShell', 'GitHub'])('skips folders named %s', async (name) => {
+    const d = await tmpDir()
+    await write(path.join(d, name, 'one', 'x.png'), big(8))
+    await write(path.join(d, name, 'two', 'x.png'), big(8))
+    expect(await findDuplicates(d, { minSize: 1 })).toEqual([])
+  })
+
+  it('never treats empty files as duplicates, even with a minimum size of 0', async () => {
+    const d = await tmpDir()
+    await write(path.join(d, 'a', '__init__.py'), '')
+    await write(path.join(d, 'b', '__init__.py'), '')
+    expect(await findDuplicates(d, { minSize: 0 })).toEqual([])
+  })
+
+  it('the same folder reached through a junction is not a copy of itself', async () => {
+    const d = await tmpDir()
+    const real = path.join(d, 'Photos')
+    await write(path.join(real, 'only.jpg'), big(9))
+    const alias = path.join(d, 'Alias')
+    await fs.symlink(real, alias, 'junction')
+    expect(await findDuplicates([alias, real], { minSize: 1 })).toEqual([])
+  })
+
+  it('two hard links to one file are not duplicates', async () => {
+    const d = await tmpDir()
+    const a = await write(path.join(d, 'a', 'one.jpg'), big(9))
+    await fs.mkdir(path.join(d, 'b'))
+    await fs.link(a, path.join(d, 'b', 'one.jpg'))
+    expect(await findDuplicates(d, { minSize: 1 })).toEqual([])
+  })
+
+  it('usableRoots skips excluded, protected and missing folders and says why', async () => {
+    const d = await tmpDir()
+    const ok = path.join(d, 'ok')
+    const ex = path.join(d, 'excluded')
+    await fs.mkdir(ok)
+    await fs.mkdir(ex)
+    const r = await usableRoots([ok, ex, path.join(d, 'gone'), 'C:\\Windows'], [ex])
+    expect(r.roots).toEqual([ok])
+    expect(r.skipped.map((s) => path.basename(s.dir))).toEqual(['excluded', 'gone', 'Windows'])
+  })
+})
+
+describe('planDuplicateRemovals', () => {
   const f = (p: string, mtimeMs: number) => ({ path: p, size: 10, mtimeMs })
+  const removed = (plans: { remove: { path: string }[] }[]) => plans.flatMap((p) => p.remove.map((r) => r.path)).sort()
 
   it('keeps the oldest copy of each group and removes the rest', () => {
     const groups = [
       { hash: 'a', size: 10, files: [f('C:\\new.jpg', 300), f('C:\\old.jpg', 100), f('C:\\mid.jpg', 200)] },
       { hash: 'b', size: 10, files: [f('C:\\x.pdf', 5), f('C:\\y.pdf', 9)] }
     ]
-    expect(pickDuplicateRemovals(groups).sort()).toEqual(['C:\\mid.jpg', 'C:\\new.jpg', 'C:\\y.pdf'])
+    expect(removed(planDuplicateRemovals(groups))).toEqual(['C:\\mid.jpg', 'C:\\new.jpg', 'C:\\y.pdf'])
   })
 
-  it('breaks a tie on age by keeping the shorter path', () => {
-    const groups = [{ hash: 'a', size: 10, files: [f('C:\\Downloads\\copy of a.jpg', 1), f('C:\\a.jpg', 1)] }]
-    expect(pickDuplicateRemovals(groups)).toEqual(['C:\\Downloads\\copy of a.jpg'])
+  it('on equal age keeps the copy in the better-ranked folder, then the shorter path', () => {
+    const rank = (p: string) => (p.startsWith('C:\\Pictures') ? 0 : p.startsWith('C:\\Downloads') ? 2 : 1)
+    const groups = [{ hash: 'a', size: 10, files: [f('C:\\Downloads\\a.jpg', 1), f('C:\\Pictures\\Trip 2024\\a.jpg', 1)] }]
+    expect(removed(planDuplicateRemovals(groups, rank))).toEqual(['C:\\Downloads\\a.jpg'])
+    const tie = [{ hash: 'a', size: 10, files: [f('C:\\x\\copy of a.jpg', 1), f('C:\\x\\a.jpg', 1)] }]
+    expect(removed(planDuplicateRemovals(tie))).toEqual(['C:\\x\\copy of a.jpg'])
   })
 
   it('returns nothing for no groups', () => {
-    expect(pickDuplicateRemovals([])).toEqual([])
+    expect(planDuplicateRemovals([])).toEqual([])
+  })
+})
+
+describe('recheckRemovals', () => {
+  async function scanned() {
+    const d = await tmpDir()
+    const old = await write(path.join(d, 'a', 'photo.jpg'), big(7))
+    const t = new Date(Date.now() - 86400000)
+    await fs.utimes(old, t, t)
+    const copy = await write(path.join(d, 'b', 'photo (1).jpg'), big(7))
+    const plans = planDuplicateRemovals(await findDuplicates(d, { minSize: 1 }))
+    return { old, copy, plans }
+  }
+
+  it('keeps the plan when nothing changed', async () => {
+    const { copy, plans } = await scanned()
+    expect(await recheckRemovals(plans)).toEqual([copy])
+  })
+
+  it('drops a copy that was edited after the scan', async () => {
+    const { copy, plans } = await scanned()
+    await fs.writeFile(copy, big(8))
+    expect(await recheckRemovals(plans)).toEqual([])
+  })
+
+  it('drops the whole group when the kept copy is gone or changed', async () => {
+    const { old, plans } = await scanned()
+    await fs.rm(old)
+    expect(await recheckRemovals(plans)).toEqual([])
   })
 })

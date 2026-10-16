@@ -20,12 +20,13 @@ Everything TidyDesk removes waits in a restorable **Safe Bin** first, and every 
   - Files changed in the last hour are always skipped.
   - Caches of a browser that is open are skipped too.
 - **Organizer**: one click on **Organize Desktop** sorts the loose files into `Images`, `Documents`, `Spreadsheets`, `Presentations`, `Videos`, `Music`, `Archives`, `Installers`, `Code` and `Other` (or into year / month folders).
-  - Add more folders, or drop any folder on the page to organize it once.
+  - Add more folders, or drop any folder on the page to organize it once (you are asked first).
   - Shortcuts and subfolders are never touched.
   - **Undo** puts every file back exactly where it was.
 - **Duplicates**: one click on **Remove duplicates** checks Desktop, Documents, Downloads, Pictures, Music and Videos for files with **byte-for-byte identical content** (SHA-256), whatever their names.
   - The oldest copy is kept; the others go to the Safe Bin, so you can restore them.
-  - Hidden and program folders such as `node_modules` are skipped.
+  - Only photos, documents, music, videos and archives are compared. Program, game and project folders (such as `AppData`, `node_modules` or anything with a `.git` folder) are skipped.
+  - Every copy is checked again just before it moves; anything that changed during the scan is left alone.
 - **Large Files**: lists the biggest files (over 50 MB) on a drive or in a folder, so you can send the ones you no longer need to the Safe Bin.
 - **Empty Folders**: finds folders with nothing inside, even in their subfolders, and removes them. They can be recreated with one click.
 - **Scheduled auto-clean**: cleans the junk categories you choose daily or weekly, in the background.

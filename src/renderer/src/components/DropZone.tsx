@@ -3,7 +3,16 @@ import { FolderInput } from 'lucide-react'
 import { call, tidy, toast } from '../api'
 
 /** Wraps a page so a single folder can be dropped onto it. */
-export function DropZone({ onFolder, children }: { onFolder: (dir: string) => void; children: ReactNode }): JSX.Element {
+export function DropZone({
+  onFolder,
+  disabled,
+  children
+}: {
+  onFolder: (dir: string) => void
+  /** while true (e.g. a run is in progress) drops are ignored */
+  disabled?: boolean
+  children: ReactNode
+}): JSX.Element {
   const [over, setOver] = useState(false)
   const depth = useRef(0)
 
@@ -11,6 +20,7 @@ export function DropZone({ onFolder, children }: { onFolder: (dir: string) => vo
     e.preventDefault()
     depth.current = 0
     setOver(false)
+    if (disabled) return
     const files = [...e.dataTransfer.files]
     if (files.length !== 1) return toast.error('Drop a single folder')
     const p = tidy.pathForFile(files[0])
@@ -24,7 +34,7 @@ export function DropZone({ onFolder, children }: { onFolder: (dir: string) => vo
       onDragEnter={(e) => {
         e.preventDefault()
         depth.current++
-        setOver(true)
+        if (!disabled) setOver(true)
       }}
       onDragOver={(e) => e.preventDefault()}
       onDragLeave={() => {

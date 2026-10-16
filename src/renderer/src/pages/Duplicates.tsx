@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
 import { Copy, Trash2, X } from 'lucide-react'
 import type { HistoryEntry } from '@shared/types'
-import { call, tidy, useSettings } from '../api'
+import { call, tidy, toast, useSettings } from '../api'
+import { ConfirmDialog } from '../components/ConfirmDialog'
 import { useProgress } from '../store'
 import { SafeBinResult } from '../components/SafeBinResult'
 import { DropZone } from '../components/DropZone'
@@ -13,6 +14,7 @@ export function DuplicatesPage(): JSX.Element {
   const progress = useProgress('dup')
   const [defaults, setDefaults] = useState<string[]>([])
   const [running, setRunning] = useState(false)
+  const [dropped, setDropped] = useState<string | null>(null)
   // undefined: not run yet; null: ran and found nothing
   const [result, setResult] = useState<HistoryEntry | null | undefined>(undefined)
 
@@ -27,11 +29,13 @@ export function DuplicatesPage(): JSX.Element {
     setResult(undefined)
     const r = await call(tidy.dupAuto(dirs))
     setRunning(false)
-    if (r !== undefined) setResult(r)
+    if (!r) return
+    setResult(r.entry)
+    for (const s of r.skipped) toast.info(`Skipped ${s.dir}: ${s.error}`)
   }
 
   return (
-    <DropZone onFolder={(d) => void run([d])}>
+    <DropZone onFolder={setDropped} disabled={running}>
       <PageHeader
         title="Duplicates"
         subtitle="One click finds files with byte-for-byte identical content, whatever their names, keeps the oldest copy and moves the rest to the Safe Bin."
@@ -60,8 +64,8 @@ export function DuplicatesPage(): JSX.Element {
           </Button>
         </div>
         <p className="mt-4 border-t border-line pt-4 text-xs text-muted">
-          Subfolders are included; hidden and program folders (like node_modules) are skipped. Removed copies stay in the
-          Safe Bin for {settings.holdHours} hours so you can restore them. Tip: drop any folder here to check just that one.
+          Photos, documents, music, videos and archives are compared; program, game and project folders are skipped. Removed copies stay in the
+          Safe Bin for {settings.holdHours} hours so you can restore them. Tip: drop any folder here to remove duplicates in just that one.
         </p>
       </Card>
 
@@ -103,6 +107,24 @@ export function DuplicatesPage(): JSX.Element {
       )}
 
       {result && <SafeBinResult entry={result} noun="duplicates" onChange={setResult} />}
+
+      <ConfirmDialog
+        open={dropped !== null}
+        title="Remove duplicates in this folder?"
+        body={
+          <>
+            <span className="selectable block break-all font-medium text-fg">{dropped}</span>
+            <span className="mt-2 block">The oldest copy of each file is kept; the others move to the Safe Bin for {settings.holdHours} hours.</span>
+          </>
+        }
+        confirmLabel="Remove duplicates"
+        onCancel={() => setDropped(null)}
+        onConfirm={() => {
+          const d = dropped
+          setDropped(null)
+          if (d) void run([d])
+        }}
+      />
     </DropZone>
   )
 }

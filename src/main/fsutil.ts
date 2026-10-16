@@ -68,6 +68,8 @@ export interface WalkOptions {
   /** Paths (folders or files) for which this returns true are not entered or yielded. */
   exclude?: (p: string) => boolean
   skipHidden?: boolean
+  /** Called with a folder's entry names; returning true skips that whole folder (e.g. a project root). */
+  skipFolder?: (dir: string, names: string[]) => boolean
   signal?: AbortSignal
 }
 
@@ -94,6 +96,7 @@ export async function* walkFiles(dir: string, opts: WalkOptions = {}): AsyncGene
     } catch {
       return
     }
+    if (opts.skipFolder?.(current, entries.map((e) => e.name))) return
     const files: string[] = []
     for (const e of entries) {
       if (e.isSymbolicLink()) continue

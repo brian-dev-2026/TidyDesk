@@ -12,7 +12,8 @@ import { listDrives } from './disk'
 import { junkCategories, runningBrowsers, scanJunk } from './junk'
 import { emptyRecycleBin, recycleBinInfo } from './recyclebin'
 import { autoOrganize, undoOrganize } from './organizer'
-import { findDuplicates, pickDuplicateRemovals } from './duplicates'
+import { findDuplicates, planDuplicateRemovals, recheckRemovals, usableRoots, USER_CONTENT_EXTENSIONS } from './duplicates'
+import { isExcluded } from './exclusions'
 import { getLog } from './logger'
 import type { Updater } from './updater'
 import { findLargeFiles } from './largefiles'
@@ -150,19 +151,33 @@ export function registerIpc(deps: IpcDeps): { notifyHistoryChanged: () => void; 
     return r.canceled ? null : r.filePaths[0] ?? null
   })
 
-  /** The folders the one-click actions use: the user's list, or the standard ones. */
-  const autoFolders = async (): Promise<{ organize: string[]; duplicates: string[] }> => {
-    const s = await settings.get()
-    const known = (['desktop', 'documents', 'downloads', 'pictures', 'music', 'videos'] as const).flatMap((k) => {
+  /** Windows' own user folders, in a fixed order (Desktop first). */
+  const knownFolders = (): { key: string; dir: string }[] =>
+    (['desktop', 'documents', 'downloads', 'pictures', 'music', 'videos'] as const).flatMap((key) => {
       try {
-        return [app.getPath(k)]
+        return [{ key, dir: app.getPath(key) }]
       } catch {
         return [] // a folder Windows does not know about
       }
     })
+
+  /** The folders the one-click actions use: the user's list, or the standard ones. */
+  const autoFolders = async (): Promise<{ organize: string[]; duplicates: string[] }> => {
+    const s = await settings.get()
+    const known = knownFolders().map((k) => k.dir)
     return {
       organize: s.organizeFolders ?? known.slice(0, 1),
       duplicates: s.duplicateFolders ?? known
+    }
+  }
+
+  /** Which copy of a duplicate to keep on equal age: library folders, then Desktop, then Downloads. */
+  const keepRank = (): ((p: string) => number) => {
+    const rankOf: Record<string, number> = { pictures: 0, documents: 0, music: 0, videos: 0, desktop: 1, downloads: 2 }
+    const known = knownFolders()
+    return (p) => {
+      const k = known.find((f) => isExcluded(p, [f.dir]))
+      return k ? rankOf[k.key] : 1
     }
   }
 
@@ -198,26 +213,36 @@ export function registerIpc(deps: IpcDeps): { notifyHistoryChanged: () => void; 
     dupAbort?.abort()
     const ac = new AbortController()
     dupAbort = ac
-    const { minDuplicateSize, exclusions, dryRun } = await settings.get()
+    const { minDuplicateSize, exclusions } = await settings.get()
     const list = folderList(dirs) ?? (await autoFolders()).duplicates
     if (!list.length) throw new Error('Add a folder to check first')
+    const { roots, skipped } = await usableRoots(list, exclusions)
+    if (!roots.length) throw new Error(skipped.length === 1 ? `${skipped[0].dir}: ${skipped[0].error}` : 'None of these folders can be checked')
     const report = progress('dup')
     try {
-      const groups = await findDuplicates(list, {
+      const groups = await findDuplicates(roots, {
         minSize: minDuplicateSize,
         exclusions,
+        extensions: USER_CONTENT_EXTENSIONS,
         signal: ac.signal,
         onProgress: (p) => report(p.phase, p.done, p.total)
       })
       if (ac.signal.aborted) throw new Error('Cancelled')
-      const paths = pickDuplicateRemovals(groups).filter((p) => !isProtectedPath(p))
-      if (!paths.length) return null
+      // the scan can take minutes: re-read the settings and re-check every file before moving
+      const now = await settings.get()
+      const paths = (await recheckRemovals(planDuplicateRemovals(groups, keepRank()))).filter(
+        (p) => !isProtectedPath(p) && !isExcluded(p, now.exclusions)
+      )
+      if (!paths.length) return { entry: null, skipped }
       const title = `Removed ${paths.length} duplicate${paths.length === 1 ? '' : 's'}`
-      return strip(
+      const entry = strip(
         await withChange(
-          safeBin.quarantine(paths, { type: 'duplicates', title, dryRun, exclusions }, (d, t) => report('Moving', d, t))
+          safeBin.quarantine(paths, { type: 'duplicates', title, dryRun: now.dryRun, exclusions: now.exclusions }, (d, t) =>
+            report('Moving', d, t)
+          )
         )
       )
+      return { entry, skipped }
     } finally {
       if (dupAbort === ac) dupAbort = null
     }

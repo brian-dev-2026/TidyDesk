@@ -6,10 +6,24 @@ import type { DupGroup, FileInfo } from '@shared/types'
 import { isProtectedPath } from './guards'
 import { walkFiles } from './fsutil'
 import { excluder, isExcluded } from './exclusions'
+import { DEFAULT_CATEGORIES } from './organizer'
 
 const HEAD_BYTES = 65536
-/** Folders whose identical files belong to programs or projects, not to the user. */
-const DEV_DIRS = new Set(['node_modules', '__pycache__', 'site-packages', 'bower_components'])
+
+/** Folders whose identical files belong to programs, games or projects, not to the user. */
+const SKIP_DIR_NAMES = new Set([
+  'node_modules', '__pycache__', 'site-packages', 'bower_components', 'bin', 'obj', 'target', 'build', 'dist',
+  'vendor', 'packages', 'venv', 'appdata', 'windowspowershell', 'powershell', 'my games', 'github', 'source', 'arduino'
+])
+/** A folder holding one of these is a project or app root and is skipped whole. */
+const PROJECT_MARKERS = new Set(['.git', '.svn', '.hg', 'pyvenv.cfg', 'package.json', 'cargo.toml', 'go.mod', 'pom.xml', 'build.gradle'])
+const PROJECT_MARKER_EXT = /\.(sln|csproj|vbproj|fsproj|vcxproj)$/i
+
+/** What the one-click remover may compare: the user's photos, documents, media and archives. */
+export const USER_CONTENT_EXTENSIONS = new Set([
+  ...['Images', 'Documents', 'Spreadsheets', 'Presentations', 'Videos', 'Music', 'Archives'].flatMap((c) => DEFAULT_CATEGORIES[c]),
+  'msi'
+])
 
 export interface DupProgress {
   phase: 'listing' | 'hashing'
@@ -22,6 +36,8 @@ export interface FindOptions {
   signal?: AbortSignal
   onProgress?: (p: DupProgress) => void
   exclusions?: string[]
+  /** Only files with these lowercase extensions (no dot) are compared. */
+  extensions?: Set<string>
 }
 
 async function headHash(file: string): Promise<string> {
@@ -45,12 +61,27 @@ function fullHash(file: string, signal?: AbortSignal): Promise<string> {
   })
 }
 
+/** Volume + file id, or undefined when the file system cannot tell files apart. */
+async function fileId(p: string): Promise<string | undefined> {
+  const st = await fs.stat(p, { bigint: true })
+  return st.ino === 0n ? undefined : `${st.dev}:${st.ino}`
+}
+
 function multiples<K>(map: Map<K, FileInfo[]>): FileInfo[][] {
   return [...map.values()].filter((g) => g.length > 1)
 }
 
 function checkAbort(signal?: AbortSignal): void {
   if (signal?.aborted) throw new Error('Cancelled')
+}
+
+/** Resolves junctions, links and mapped paths so two names for one folder become one root. */
+async function realRoot(dir: string): Promise<string> {
+  try {
+    return await fs.realpath(dir)
+  } catch {
+    return path.resolve(dir)
+  }
 }
 
 /** Unique roots, dropping any that sit inside another, so no file is listed twice. */
@@ -70,32 +101,53 @@ function distinctRoots(dirs: string[]): string[] {
   return out
 }
 
+/** Splits a folder list into the ones that can be scanned and the ones that are skipped, with why. */
+export async function usableRoots(
+  dirs: string[],
+  exclusions: string[]
+): Promise<{ roots: string[]; skipped: { dir: string; error: string }[] }> {
+  const roots: string[] = []
+  const skipped: { dir: string; error: string }[] = []
+  for (const dir of dirs) {
+    if (isProtectedPath(dir)) skipped.push({ dir, error: 'Protected folder' })
+    else if (isExcluded(dir, exclusions)) skipped.push({ dir, error: 'In your exclusions list' })
+    else if (!(await fs.stat(dir).then((s) => s.isDirectory(), () => false))) skipped.push({ dir, error: 'Folder not found' })
+    else roots.push(dir)
+  }
+  return { roots, skipped }
+}
+
 /**
  * Groups files under one or more folders whose contents are byte-identical
- * (size → 64 KB head hash → full SHA-256). Hidden and developer folders are skipped.
+ * (size → 64 KB head hash → full SHA-256). Empty files, hidden folders and program or project
+ * folders are skipped, and two paths to the same file on disk never count as copies.
  */
 export async function findDuplicates(dirs: string | string[], opts: FindOptions): Promise<DupGroup[]> {
-  const roots = distinctRoots(typeof dirs === 'string' ? [dirs] : dirs)
+  const roots = distinctRoots(await Promise.all((typeof dirs === 'string' ? [dirs] : dirs).map(realRoot)))
   for (const dir of roots) {
     if (isProtectedPath(dir)) throw new Error('Protected folder')
     if (opts.exclusions && isExcluded(dir, opts.exclusions)) throw new Error('This folder is in your exclusions list')
   }
   const { signal, onProgress } = opts
+  const minSize = Math.max(1, opts.minSize)
   checkAbort(signal)
 
   const excluded = excluder(opts.exclusions)
-  const exclude = (p: string): boolean => DEV_DIRS.has(path.basename(p).toLowerCase()) || !!excluded?.(p)
+  const exclude = (p: string): boolean => SKIP_DIR_NAMES.has(path.basename(p).toLowerCase()) || !!excluded?.(p)
+  const skipFolder = (_dir: string, names: string[]): boolean =>
+    names.some((n) => PROJECT_MARKERS.has(n.toLowerCase()) || PROJECT_MARKER_EXT.test(n))
   const bySize = new Map<number, FileInfo[]>()
   const seen = new Set<string>()
   let listed = 0
   for (const dir of roots) {
-    for await (const f of walkFiles(dir, { signal, exclude, skipHidden: true })) {
+    for await (const f of walkFiles(dir, { signal, exclude, skipFolder, skipHidden: true })) {
       const k = f.path.toLowerCase()
       if (seen.has(k)) continue
       seen.add(k)
       listed++
       if (listed % 500 === 0) onProgress?.({ phase: 'listing', done: listed, total: 0 })
-      if (f.size < opts.minSize) continue
+      if (f.size < minSize) continue
+      if (opts.extensions && !opts.extensions.has(path.extname(f.path).slice(1).toLowerCase())) continue
       const g = bySize.get(f.size)
       if (g) g.push(f)
       else bySize.set(f.size, [f])
@@ -111,8 +163,22 @@ export async function findDuplicates(dirs: string | string[], opts: FindOptions)
 
   const groups: DupGroup[] = []
   for (const sizeGroup of candidates) {
-    const byHead = new Map<string, FileInfo[]>()
+    // one entry per physical file: hard links and aliases share an id
+    const unique: FileInfo[] = []
+    const ids = new Set<string>()
     for (const f of sizeGroup) {
+      checkAbort(signal)
+      try {
+        const id = await fileId(f.path)
+        if (id && ids.has(id)) continue
+        if (id) ids.add(id)
+        unique.push({ ...f, id })
+      } catch {
+        // vanished — drop
+      }
+    }
+    const byHead = new Map<string, FileInfo[]>()
+    for (const f of unique) {
       checkAbort(signal)
       try {
         const k = await headHash(f.path)
@@ -137,6 +203,8 @@ export async function findDuplicates(dirs: string | string[], opts: FindOptions)
       }
       for (const [hash, files] of byFull) {
         if (files.length < 2) continue
+        // without file ids we cannot prove these are separate files, so leave the group alone
+        if (files.some((f) => !f.id)) continue
         groups.push({ hash, size: files[0].size, files: files.sort((a, b) => a.mtimeMs - b.mtimeMs) })
       }
     }
@@ -144,10 +212,44 @@ export async function findDuplicates(dirs: string | string[], opts: FindOptions)
   return groups.sort((a, b) => b.size * (b.files.length - 1) - a.size * (a.files.length - 1))
 }
 
-/** The copies to remove: every file of each group except the oldest (ties keep the shorter path). */
-export function pickDuplicateRemovals(groups: DupGroup[]): string[] {
-  return groups.flatMap((g) => {
-    const [, ...rest] = [...g.files].sort((a, b) => a.mtimeMs - b.mtimeMs || a.path.length - b.path.length || a.path.localeCompare(b.path))
-    return rest.map((f) => f.path)
+export interface RemovalPlan {
+  keep: FileInfo
+  remove: FileInfo[]
+}
+
+/**
+ * Which copy each group keeps: the oldest; on equal age the one in the better-ranked folder
+ * (lower rank wins), then the shorter path. Every other copy is removed.
+ */
+export function planDuplicateRemovals(groups: DupGroup[], rank: (p: string) => number = () => 0): RemovalPlan[] {
+  return groups.map((g) => {
+    const [keep, ...remove] = [...g.files].sort(
+      (a, b) => a.mtimeMs - b.mtimeMs || rank(a.path) - rank(b.path) || a.path.length - b.path.length || a.path.localeCompare(b.path)
+    )
+    return { keep, remove }
   })
+}
+
+async function unchanged(f: FileInfo): Promise<boolean> {
+  try {
+    const st = await fs.stat(f.path)
+    return st.isFile() && st.size === f.size && st.mtimeMs === f.mtimeMs && (await fileId(f.path)) === f.id
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Re-checks a plan just before moving: a group whose kept copy is gone or changed is dropped whole,
+ * and a copy that changed since the scan is left alone. Returns the paths still safe to remove.
+ */
+export async function recheckRemovals(plans: RemovalPlan[]): Promise<string[]> {
+  const out: string[] = []
+  for (const p of plans) {
+    if (!p.keep.id || !(await unchanged(p.keep))) continue
+    for (const r of p.remove) {
+      if (r.id && r.id !== p.keep.id && (await unchanged(r))) out.push(r.path)
+    }
+  }
+  return out
 }

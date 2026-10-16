@@ -4,6 +4,8 @@ export interface FileInfo {
   path: string
   size: number
   mtimeMs: number
+  /** Volume + file id, set by the duplicate finder to tell real copies from two paths to one file. */
+  id?: string
 }
 
 export type ItemState = 'held' | 'restored' | 'purged' | 'skipped' | 'would-remove'
@@ -153,8 +155,8 @@ export interface TidyApi {
   /** Organizes the given folders, or the configured ones; one entry per folder that changed. */
   organizeAuto(dirs?: string[]): R<{ entries: HistoryEntry[]; errors: { dir: string; error: string }[] }>
   organizeUndo(id: string): R<HistoryEntry>
-  /** Finds duplicates and moves every copy but the oldest to the Safe Bin; null when none. */
-  dupAuto(dirs?: string[]): R<HistoryEntry | null>
+  /** Finds duplicates and moves every copy but the oldest to the Safe Bin; entry is null when none. */
+  dupAuto(dirs?: string[]): R<{ entry: HistoryEntry | null; skipped: { dir: string; error: string }[] }>
   dupCancel(): R<void>
   largeScan(dir: string): R<FileInfo[]>
   largeCancel(): R<void>

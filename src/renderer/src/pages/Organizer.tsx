@@ -6,6 +6,7 @@ import { Button, Card, cx, Empty, PageHeader } from '../components/ui'
 import { CategoryEditor } from '../components/CategoryEditor'
 import { DropZone } from '../components/DropZone'
 import { FolderList } from '../components/FolderList'
+import { ConfirmDialog } from '../components/ConfirmDialog'
 
 const files = (n: number): string => `${n.toLocaleString()} file${n === 1 ? '' : 's'}`
 
@@ -18,6 +19,7 @@ export function OrganizerPage(): JSX.Element {
   const [editing, setEditing] = useState(false)
   const [defaults, setDefaults] = useState<string[]>([])
   const [busy, setBusy] = useState<string | null>(null)
+  const [dropped, setDropped] = useState<string | null>(null)
   const [results, setResults] = useState<HistoryEntry[] | null>(null)
 
   useEffect(() => {
@@ -50,7 +52,7 @@ export function OrganizerPage(): JSX.Element {
   }
 
   return (
-    <DropZone onFolder={(d) => void run([d])}>
+    <DropZone onFolder={setDropped} disabled={busy !== null}>
       <PageHeader
         title="Organizer"
         subtitle="One click sorts the loose files in your folders into Images, Documents, Videos and more. Shortcuts and subfolders stay where they are."
@@ -158,6 +160,23 @@ export function OrganizerPage(): JSX.Element {
           </div>
         </Card>
       ))}
+      <ConfirmDialog
+        open={dropped !== null}
+        title="Organize this folder?"
+        body={
+          <>
+            <span className="selectable block break-all font-medium text-fg">{dropped}</span>
+            <span className="mt-2 block">Loose files at the top of this folder are sorted into subfolders. Shortcuts and subfolders stay put, and you can undo it.</span>
+          </>
+        }
+        confirmLabel="Organize"
+        onCancel={() => setDropped(null)}
+        onConfirm={() => {
+          const d = dropped
+          setDropped(null)
+          if (d) void run([d])
+        }}
+      />
     </DropZone>
   )
 }
