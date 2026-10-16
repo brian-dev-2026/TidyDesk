@@ -1,7 +1,7 @@
 {
   "name": "tidydesk",
   "productName": "TidyDesk",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "Clean junk, organize folders and remove duplicate files - safely, with a restorable Safe Bin.",
   "main": "out/main/index.js",
   "author": "brian-dev-2026",

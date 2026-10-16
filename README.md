@@ -26,17 +26,28 @@ Everything TidyDesk removes waits in a restorable **Safe Bin** first, and every 
 - **Duplicates**: one click on **Remove duplicates** checks Desktop, Documents, Downloads, Pictures, Music and Videos for files with **byte-for-byte identical content** (SHA-256), whatever their names.
   - The oldest copy is kept; the others go to the Safe Bin, so you can restore them.
   - Hidden and program folders such as `node_modules` are skipped.
+- **Large Files**: lists the biggest files (over 50 MB) on a drive or in a folder, so you can send the ones you no longer need to the Safe Bin.
+- **Empty Folders**: finds folders with nothing inside, even in their subfolders, and removes them. They can be recreated with one click.
+- **Scheduled auto-clean**: cleans the junk categories you choose daily or weekly, in the background.
+- **Exclusions**: folders TidyDesk must never touch, in every feature.
+- **Drag & drop**: drop a folder on the Organizer, Duplicates, Large Files or Empty Folders page.
 - **Dashboard**: shows disk usage, space held in the Safe Bin, space freed all-time, and a timeline of every action.
   - Open any entry to see each file it touched.
   - Restore single files or whole batches, undo organize runs, or delete permanently.
 - **Dry run mode**: a single switch that simulates everything.
   - Scans and plans run for real, but nothing on disk is moved or deleted.
   - Results are logged on the Dashboard, so you can see exactly what *would* happen.
+- **Activity export and logs**: export the full history as CSV, or open the error log from Settings.
+- **Automatic updates**: new versions download in the background and install when you restart.
 - **Modern UI**: dark and light themes (or follow Windows), keyboard-friendly, and a tray icon.
 
 | Junk Cleaner | Duplicates | Organizer |
 | --- | --- | --- |
 | ![Junk Cleaner](docs/screenshots/junk-cleaner.png) | ![Duplicates](docs/screenshots/duplicates.png) | ![Organizer](docs/screenshots/organizer.png) |
+
+| Large Files | Empty Folders |
+| --- | --- |
+| ![Large Files](docs/screenshots/large-files.png) | ![Empty Folders](docs/screenshots/empty-folders.png) |
 
 ## How deleting works (please read)
 
@@ -78,6 +89,10 @@ Turn on **Dry run** in the sidebar to test everything safely.
 - If you want them gone, delete any leftover `X:\.tidydesk-bin` folders by hand. They are hidden, so turn on *Show hidden items* in Explorer.
 - Your history and settings live in `%APPDATA%\TidyDesk`.
 
+## Updating
+
+TidyDesk checks GitHub Releases at startup and every 6 hours. A new version downloads in the background (turn off **Settings → Automatically download updates** to only be notified) and installs the next time you restart TidyDesk. Your settings, history and Safe Bin are kept.
+
 ## Build from source
 
 Requirements: Windows 10/11 and Node.js 20 or newer.
@@ -106,12 +121,20 @@ Behind a corporate proxy, the Electron download needs `ELECTRON_GET_USE_PROXY=1`
 | `src/shared/` | Types shared across processes. |
 | `tests/` | Vitest suites that run against real temporary folders. |
 
+## Versioning
+
+TidyDesk follows [semantic versioning](https://semver.org), starting at **1.0.0**:
+
+- **Patch** (`1.0.1`): bug fixes only.
+- **Minor** (`1.1.0`): new features that don't change how existing ones behave.
+- **Major** (`2.0.0`): changes that break existing behaviour or settings.
+
 ## Releasing
 
-Push a version tag and GitHub Actions builds the installer and attaches it to a GitHub Release:
+Push a version tag and GitHub Actions builds the installer and attaches it to a GitHub Release, where the auto-updater finds it:
 
 ```bash
-npm version 0.2.0
+npm version minor   # or patch / major
 git push --follow-tags
 ```
 
