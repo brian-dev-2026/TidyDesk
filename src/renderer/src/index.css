@@ -1,0 +1,78 @@
+@import '@fontsource/inter/400.css';
+@import '@fontsource/inter/500.css';
+@import '@fontsource/inter/600.css';
+@import '@fontsource/inter/700.css';
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg: 246 247 251;
+  --surface: 255 255 255;
+  --raised: 241 243 249;
+  --line: 229 231 235;
+  --fg: 15 23 42;
+  --muted: 100 116 139;
+  --accent: 99 102 241;
+  color-scheme: light;
+}
+
+.dark {
+  --bg: 11 11 20;
+  --surface: 20 20 31;
+  --raised: 28 28 43;
+  --line: 38 38 58;
+  --fg: 230 230 240;
+  --muted: 139 139 167;
+  --accent: 129 140 248;
+  color-scheme: dark;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  @apply bg-bg text-fg font-sans antialiased;
+  font-feature-settings: 'cv11', 'ss01';
+  user-select: none;
+}
+
+::selection {
+  @apply bg-accent/30;
+}
+
+*:focus-visible {
+  @apply outline-none ring-2 ring-accent ring-offset-2 ring-offset-bg;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  @apply rounded-full bg-line;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.drag {
+  -webkit-app-region: drag;
+}
+.no-drag {
+  -webkit-app-region: no-drag;
+}
+
+.text-gradient {
+  @apply bg-gradient-to-r from-indigo-500 to-violet-500 bg-clip-text text-transparent;
+}
+
+.selectable {
+  user-select: text;
+}
